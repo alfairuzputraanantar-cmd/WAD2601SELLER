@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TEMPAT. | Catalog Manager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<header class="seller-header">
+  <h1>TEMPAT. Seller Catalog</h1>
+  <p>Manage your TEMPAT. luxury products</p>
+</header>
+
+<section class="add-product">
+  <h2>Add New Product</h2>
+  <div class="form-grid">
+    <input id="name" placeholder="Product Name">
+    <input id="price" type="number" placeholder="Price (Rp)">
+    <input id="tags" placeholder="Tags (comma separated)">
+  </div>
+  <button onclick="addProduct()">Add Product</button>
+</section>
+
+<section class="catalog">
+  <h2>Current Catalog</h2>
+  <div class="catalog-container">
+    <div id="productList" class="product-grid"></div>
+  </div>
+</section>
+
+<script src="script.js"></script>
+</body>
+</html>
