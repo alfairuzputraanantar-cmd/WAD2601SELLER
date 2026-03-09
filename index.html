@@ -2,43 +2,107 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>TEMPAT. | Catalog Manager</title>
+  <title>TEMPAT. | Seller Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-
-  <!-- Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-
-  <!-- CSS -->
   <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
 
 <header class="seller-header">
-  <h1>TEMPAT. Seller Catalog</h1>
-  <p>Manage your TEMPAT. luxury products</p>
+  <div class="header-left">
+    <h1>TEMPAT.</h1>
+    <span class="header-badge">Seller Dashboard</span>
+  </div>
+  <div class="header-right">
+    <div class="status-dot"></div>
+    <span class="status-text">Live</span>
+    <button class="chat-toggle-btn" onclick="toggleChatPanel()">
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
+      </svg>
+      <span id="chat-unread-badge" class="unread-badge hidden">0</span>
+    </button>
+  </div>
 </header>
 
-<section class="add-product">
-  <h2>Add New Product</h2>
-  <div class="form-grid">
-    <input id="name" placeholder="Product Name">
-    <input id="price" type="number" placeholder="Price (Rp)">
-    <input id="tags" placeholder="Tags (comma separated)">
-  </div>
-  <button onclick="addProduct()">Add Product</button>
-</section>
+<div class="dashboard-layout">
 
-<section class="catalog">
-  <h2>Current Catalog</h2>
-  <div class="catalog-container">
-    <div id="productList" class="product-grid"></div>
+  <!-- LEFT: Catalog -->
+  <div class="catalog-panel">
+    <section class="add-product">
+      <h2>Add New Product</h2>
+      <div class="form-grid">
+        <input id="name" placeholder="Product Name">
+        <input id="price" type="number" placeholder="Price (Rp)">
+        <input id="stock" type="number" placeholder="Initial Stock" min="0">
+        <input id="tags" placeholder="Tags (comma separated)">
+      </div>
+      <button onclick="addProduct()">Add Product</button>
+    </section>
+    <section class="catalog">
+      <h2>Current Catalog</h2>
+      <div class="catalog-container">
+        <div id="productList" class="product-grid"></div>
+      </div>
+    </section>
   </div>
-</section>
+
+  <!-- RIGHT: Chat Panel -->
+  <div class="chat-panel" id="chat-panel">
+    <div class="chat-panel-header">
+      <div class="chat-panel-title">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
+        </svg>
+        <span>Buyer Chat</span>
+        <span class="online-dot"></span>
+      </div>
+      <button class="chat-close-btn" onclick="toggleChatPanel()">✕</button>
+    </div>
+
+    <!-- Conversation List -->
+    <div class="conversation-tabs" id="conversation-tabs">
+      <div class="conv-tabs-label">Conversations</div>
+      <div id="conv-list"></div>
+      <div id="conv-empty" class="conv-empty hidden">
+        <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="opacity:0.3;margin-bottom:8px;">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
+        </svg>
+        <p>No messages yet</p>
+        <span>Waiting for buyers...</span>
+      </div>
+    </div>
+
+    <!-- Chat Window -->
+    <div class="chat-window-area hidden" id="chat-window-area">
+      <div class="chat-window-header">
+        <button onclick="backToList()" class="back-btn">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+          </svg>
+        </button>
+        <div class="chat-avatar" id="active-avatar">B</div>
+        <div>
+          <div class="chat-username" id="active-username">Buyer</div>
+          <div class="chat-userstatus">Customer</div>
+        </div>
+        <button onclick="clearConversation()" style="margin-left:auto;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);border-radius:8px;color:#ef4444;font-size:11px;padding:5px 10px;cursor:pointer;">🗑 Clear</button>
+      </div>
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-area">
+        <input type="text" id="seller-chat-input" placeholder="Type a reply..." onkeypress="handleChatKey(event)">
+        <button onclick="sendSellerMessage()" class="send-btn">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script src="script.js"></script>
 </body>
