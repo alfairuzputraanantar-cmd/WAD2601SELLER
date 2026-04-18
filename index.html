@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>TEMPAT. | Seller Dashboard</title>
+  <meta name="description" content="TEMPAT. Seller Admin Dashboard — manage real-time orders, buyer chats, and your product catalog in one place.">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
@@ -19,7 +20,18 @@
   <div class="header-right">
     <div class="status-dot"></div>
     <span class="status-text">Live</span>
-    <button class="chat-toggle-btn" onclick="toggleChatPanel()">
+
+    <!-- Orders toggle button -->
+    <button class="chat-toggle-btn" onclick="toggleOrdersPanel()" title="Orders" style="position:relative;">
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+      </svg>
+      <span id="order-badge" class="unread-badge hidden"
+        style="background:#f59e0b;color:#000;">0</span>
+    </button>
+
+    <!-- Chat toggle button -->
+    <button class="chat-toggle-btn" onclick="toggleChatPanel()" title="Chat">
       <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
       </svg>
@@ -50,6 +62,23 @@
     </section>
   </div>
 
+  <!-- MIDDLE: Orders Panel -->
+  <div class="orders-panel" id="orders-panel">
+    <div class="orders-panel-header">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--gold);">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+        </svg>
+        <span style="color:var(--gold);font-weight:700;font-size:15px;">Incoming Orders</span>
+      </div>
+      <button class="chat-close-btn" onclick="toggleOrdersPanel()">✕</button>
+    </div>
+    <!-- Filter tabs -->
+    <div id="order-filters" style="display:flex;flex-wrap:wrap;gap:6px;padding:12px 16px;border-bottom:1px solid var(--gold-border);flex-shrink:0;"></div>
+    <!-- Order list -->
+    <div id="order-list" style="flex:1;overflow-y:auto;padding:12px 16px;"></div>
+  </div>
+
   <!-- RIGHT: Chat Panel -->
   <div class="chat-panel" id="chat-panel">
     <div class="chat-panel-header">
@@ -78,32 +107,68 @@
 
     <!-- Chat Window -->
     <div class="chat-window-area hidden" id="chat-window-area">
+
+      <!-- ① FIXED HEADER -->
       <div class="chat-window-header">
-        <button onclick="backToList()" class="back-btn">
+        <button onclick="backToList()" class="back-btn" title="Back to conversations">
           <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
           </svg>
         </button>
         <div class="chat-avatar" id="active-avatar">B</div>
-        <div>
+        <div style="flex:1;min-width:0;">
           <div class="chat-username" id="active-username">Buyer</div>
-          <div class="chat-userstatus">Customer</div>
+          <div class="chat-userstatus" id="chat-userstatus-label">Customer</div>
         </div>
-        <button onclick="clearConversation()" style="margin-left:auto;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);border-radius:8px;color:#ef4444;font-size:11px;padding:5px 10px;cursor:pointer;">🗑 Clear</button>
-      </div>
-      <div class="chat-messages" id="chat-messages"></div>
-      <div class="chat-input-area">
-        <input type="text" id="seller-chat-input" placeholder="Type a reply..." onkeypress="handleChatKey(event)">
-        <button onclick="sendSellerMessage()" class="send-btn">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+        <button onclick="clearConversation()" class="chat-clear-btn" title="Clear conversation">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
           </svg>
+          Clear
         </button>
       </div>
+
+      <!-- ② SCROLLABLE MESSAGE AREA (flex-grow) -->
+      <div class="chat-messages" id="chat-messages"></div>
+
+      <!-- ③ STICKY PILL INPUT BAR -->
+      <div class="chat-input-bar">
+        <div class="chat-input-pill">
+          <input
+            type="text"
+            id="seller-chat-input"
+            class="chat-pill-input"
+            placeholder="Reply to buyer…"
+            onkeypress="handleChatKey(event)"
+            maxlength="500"
+            autocomplete="off"
+          >
+          <button onclick="sendSellerMessage()" class="chat-pill-send" title="Send message" id="chat-send-btn">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
 
 <script src="script.js"></script>
+<!-- SellerDashboard: real-time orders, Accept/Reject/Done, decoupled chat -->
+<script src="SellerDashboard.js"></script>
+<script>
+  function toggleOrdersPanel() {
+    document.getElementById('orders-panel').classList.toggle('orders-panel-open');
+  }
+  function toggleChatPanel() {
+    const panel = document.getElementById('chat-panel');
+    if (panel) {
+      panel.classList.toggle('chat-panel-open');
+      window.__chatPanelOpen = panel.classList.contains('chat-panel-open');
+    }
+  }
+</script>
 </body>
 </html>
