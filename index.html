@@ -1,174 +1,248 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <title>TEMPAT. | Seller Dashboard</title>
-  <meta name="description" content="TEMPAT. Seller Admin Dashboard — manage real-time orders, buyer chats, and your product catalog in one place.">
+  <meta name="description"
+    content="TEMPAT. Manual Seller Dashboard — chat with buyers, push food recommendations, and monitor orders in real time.">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+
+  <!-- ══ Firebase SDK (compat v9 — same version as Buyer side) ══ -->
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
-<header class="seller-header">
-  <div class="header-left">
-    <h1>TEMPAT.</h1>
-    <span class="header-badge">Seller Dashboard</span>
-  </div>
-  <div class="header-right">
-    <div class="status-dot"></div>
-    <span class="status-text">Live</span>
-
-    <!-- Orders toggle button -->
-    <button class="chat-toggle-btn" onclick="toggleOrdersPanel()" title="Orders" style="position:relative;">
-      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-      </svg>
-      <span id="order-badge" class="unread-badge hidden"
-        style="background:#f59e0b;color:#000;">0</span>
-    </button>
-
-    <!-- Chat toggle button -->
-    <button class="chat-toggle-btn" onclick="toggleChatPanel()" title="Chat">
-      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
-      </svg>
-      <span id="chat-unread-badge" class="unread-badge hidden">0</span>
-    </button>
-  </div>
-</header>
-
-<div class="dashboard-layout">
-
-  <!-- LEFT: Catalog -->
-  <div class="catalog-panel">
-    <section class="add-product">
-      <h2>Add New Product</h2>
-      <div class="form-grid">
-        <input id="name" placeholder="Product Name">
-        <input id="price" type="number" placeholder="Price (Rp)">
-        <input id="stock" type="number" placeholder="Initial Stock" min="0">
-        <input id="tags" placeholder="Tags (comma separated)">
-      </div>
-      <button onclick="addProduct()">Add Product</button>
-    </section>
-    <section class="catalog">
-      <h2>Current Catalog</h2>
-      <div class="catalog-container">
-        <div id="productList" class="product-grid"></div>
-      </div>
-    </section>
-  </div>
-
-  <!-- MIDDLE: Orders Panel -->
-  <div class="orders-panel" id="orders-panel">
-    <div class="orders-panel-header">
-      <div style="display:flex;align-items:center;gap:8px;">
-        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--gold);">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-        </svg>
-        <span style="color:var(--gold);font-weight:700;font-size:15px;">Incoming Orders</span>
-      </div>
-      <button class="chat-close-btn" onclick="toggleOrdersPanel()">✕</button>
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!--  HEADER                                                   -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <header class="seller-header">
+    <div class="header-left">
+      <h1>TEMPAT.</h1>
+      <span class="header-badge">Seller Dashboard</span>
     </div>
-    <!-- Filter tabs -->
-    <div id="order-filters" style="display:flex;flex-wrap:wrap;gap:6px;padding:12px 16px;border-bottom:1px solid var(--gold-border);flex-shrink:0;"></div>
-    <!-- Order list -->
-    <div id="order-list" style="flex:1;overflow-y:auto;padding:12px 16px;"></div>
+    <div class="header-right">
+      <!-- Firebase connection status dot -->
+      <div id="fb-status" class="fb-status-dot" title="Connecting…"></div>
+
+      <div class="status-dot"></div>
+      <span class="status-text">Live</span>
+
+      <!-- Orders bell (Firebase live orders) -->
+      <button class="chat-toggle-btn" id="orders-bell-btn" onclick="toggleOrdersPanel()" title="Incoming Orders"
+        style="position:relative;">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+        </svg>
+        <span id="orders-badge" class="unread-badge hidden" style="background:#3b82f6;color:#fff;">0</span>
+      </button>
+
+      <!-- Cart notification bell -->
+      <button class="chat-toggle-btn" id="notif-bell-btn" onclick="toggleNotifPanel()" title="Cart Notifications"
+        style="position:relative;">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+        </svg>
+        <span id="notif-badge" class="unread-badge hidden" style="background:#f59e0b;color:#000;">0</span>
+      </button>
+
+      <!-- Chat toggle button (mobile only — desktop always shows panel) -->
+      <button class="chat-toggle-btn" id="chat-toggle-header-btn" onclick="toggleChatPanel()" title="Buyer Chat">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+        </svg>
+        <span id="chat-unread-badge" class="unread-badge hidden">0</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!--  NOTIFICATION PANEL (Cart activity from Buyer)            -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="notif-panel" id="notif-panel">
+    <div class="notif-panel-header">
+      <span style="color:var(--gold);font-weight:700;font-size:14px;">🛒 Cart Activity</span>
+      <button class="chat-close-btn" style="display:flex;" onclick="toggleNotifPanel()">✕</button>
+    </div>
+    <div id="notif-list" style="flex:1;overflow-y:auto;padding:12px;">
+      <p style="color:#4b5563;font-size:12px;text-align:center;padding:24px 0;">No cart activity yet.<br>Recommend items
+        to get started!</p>
+    </div>
+    <button onclick="clearNotifications()"
+      style="margin:8px 12px 12px;padding:8px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:8px;color:#ef4444;font-size:12px;font-weight:600;cursor:pointer;width:calc(100% - 24px);">Clear
+      All</button>
   </div>
 
-  <!-- RIGHT: Chat Panel -->
-  <div class="chat-panel" id="chat-panel">
-    <div class="chat-panel-header">
-      <div class="chat-panel-title">
-        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
-        </svg>
-        <span>Buyer Chat</span>
-        <span class="online-dot"></span>
-      </div>
-      <button class="chat-close-btn" onclick="toggleChatPanel()">✕</button>
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!--  ORDERS PANEL (Firebase real-time incoming orders)        -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="orders-slide-panel" id="orders-slide-panel">
+    <div class="orders-slide-header">
+      <span style="color:var(--gold);font-weight:700;font-size:14px;">📋 Incoming Orders</span>
+      <button class="chat-close-btn" style="display:flex;" onclick="toggleOrdersPanel()">✕</button>
     </div>
-
-    <!-- Conversation List -->
-    <div class="conversation-tabs" id="conversation-tabs">
-      <div class="conv-tabs-label">Conversations</div>
-      <div id="conv-list"></div>
-      <div id="conv-empty" class="conv-empty hidden">
-        <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="opacity:0.3;margin-bottom:8px;">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
-        </svg>
-        <p>No messages yet</p>
-        <span>Waiting for buyers...</span>
-      </div>
+    <div id="orders-list" style="flex:1;overflow-y:auto;padding:12px;">
+      <p id="orders-empty-msg" style="color:#4b5563;font-size:12px;text-align:center;padding:24px 0;">
+        Waiting for Firebase…<br>Orders will stream in automatically.
+      </p>
     </div>
+  </div>
 
-    <!-- Chat Window -->
-    <div class="chat-window-area hidden" id="chat-window-area">
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!--  DASHBOARD LAYOUT                                         -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="dashboard-layout">
 
-      <!-- ① FIXED HEADER -->
-      <div class="chat-window-header">
-        <button onclick="backToList()" class="back-btn" title="Back to conversations">
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
-          </svg>
-        </button>
-        <div class="chat-avatar" id="active-avatar">B</div>
-        <div style="flex:1;min-width:0;">
-          <div class="chat-username" id="active-username">Buyer</div>
-          <div class="chat-userstatus" id="chat-userstatus-label">Customer</div>
+    <!-- ──────────────────────────────────────────────────────── -->
+    <!-- LEFT: Menu / Catalog Panel                              -->
+    <!-- ──────────────────────────────────────────────────────── -->
+    <div class="catalog-panel">
+
+      <!-- Firebase error banner (shown when connection fails) -->
+      <div id="fb-error-banner"
+        style="display:none;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.35);border-radius:12px;padding:12px 16px;margin-bottom:20px;align-items:center;gap:10px;">
+        <svg width="16" height="16" fill="none" stroke="#ef4444" stroke-width="2" viewBox="0 0 24 24"
+          style="flex-shrink:0;">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <span id="fb-error-text" style="color:#ef4444;font-size:13px;font-weight:600;"></span>
+      </div>
+
+      <!-- Add Product Form -->
+      <section class="add-product">
+        <h2>Add Menu Item</h2>
+        <div class="form-grid">
+          <input id="name" placeholder="Item Name" autocomplete="off">
+          <input id="price" type="number" placeholder="Price (Rp)" min="0">
+          <input id="description" placeholder="Short description…" autocomplete="off">
+          <input id="stock" type="number" placeholder="Stock" min="0">
+          <input id="tags" placeholder="Tags (comma separated)" autocomplete="off">
         </div>
-        <button onclick="clearConversation()" class="chat-clear-btn" title="Clear conversation">
-          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+        <button onclick="addProduct()">+ Add to Menu</button>
+      </section>
+
+      <!-- Current Menu -->
+      <section class="catalog">
+        <div
+          style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:8px;">
+          <h2 style="margin:0;">🍽️ Menu — Click "Recommend" to Push a Food Card to Buyer</h2>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span id="menu-source-badge"
+              style="display:none;font-size:10px;padding:3px 10px;border-radius:20px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:#4ade80;font-weight:600;">🔥
+              Firebase Live</span>
+            <button onclick="refreshMenu()"
+              style="padding:6px 12px;background:rgba(212,175,55,0.1);border:1px solid rgba(212,175,55,0.3);border-radius:8px;color:var(--gold);font-size:11px;font-weight:600;cursor:pointer;"
+              title="Reload from Firebase">↺ Refresh</button>
+          </div>
+        </div>
+        <div class="catalog-container">
+          <div id="productList" class="product-grid">
+            <p style="opacity:.5;padding:20px;font-size:13px;" id="menu-loading-msg">⏳ Connecting to Firebase…</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ──────────────────────────────────────────────────────── -->
+    <!-- RIGHT: Buyer Chat Panel                                 -->
+    <!-- ──────────────────────────────────────────────────────── -->
+    <div class="chat-panel chat-panel-open" id="chat-panel">
+
+      <!-- Chat Header -->
+      <div class="chat-panel-header">
+        <div class="chat-panel-title">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
           </svg>
-          Clear
-        </button>
-      </div>
-
-      <!-- ② SCROLLABLE MESSAGE AREA (flex-grow) -->
-      <div class="chat-messages" id="chat-messages"></div>
-
-      <!-- ③ STICKY PILL INPUT BAR -->
-      <div class="chat-input-bar">
-        <div class="chat-input-pill">
-          <input
-            type="text"
-            id="seller-chat-input"
-            class="chat-pill-input"
-            placeholder="Reply to buyer…"
-            onkeypress="handleChatKey(event)"
-            maxlength="500"
-            autocomplete="off"
-          >
-          <button onclick="sendSellerMessage()" class="chat-pill-send" title="Send message" id="chat-send-btn">
-            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+          <span>Buyer Chat</span>
+          <span class="online-dot" id="buyer-online-dot" title="Buyer online"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button class="chat-clear-btn" onclick="clearConversation()" title="Clear conversation" id="chat-clear-btn">
+            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
+            Clear
           </button>
+          <button class="chat-close-btn" onclick="toggleChatPanel()">✕</button>
         </div>
       </div>
 
-    </div>
-  </div>
-</div>
+      <!-- Chat Messages Window -->
+      <div class="chat-window-area" id="chat-window-area">
 
-<script src="script.js"></script>
-<!-- SellerDashboard: real-time orders, Accept/Reject/Done, decoupled chat -->
-<script src="SellerDashboard.js"></script>
-<script>
-  function toggleOrdersPanel() {
-    document.getElementById('orders-panel').classList.toggle('orders-panel-open');
-  }
-  function toggleChatPanel() {
-    const panel = document.getElementById('chat-panel');
-    if (panel) {
-      panel.classList.toggle('chat-panel-open');
-      window.__chatPanelOpen = panel.classList.contains('chat-panel-open');
+        <!-- Buyer is typing indicator -->
+        <div id="buyer-typing-indicator" class="buyer-typing-bar" style="display:none;">
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <span>Buyer is typing…</span>
+        </div>
+
+        <!-- ① SCROLLABLE MESSAGE AREA -->
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-empty-state" id="chat-empty-state">
+            <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.2" viewBox="0 0 24 24"
+              style="opacity:0.2;margin-bottom:12px;">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+            </svg>
+            <p style="color:#4b5563;font-size:13px;">No messages yet</p>
+            <span style="color:#374151;font-size:11px;">Waiting for buyer…</span>
+          </div>
+        </div>
+
+        <!-- ② STICKY INPUT BAR -->
+        <div class="chat-input-bar">
+          <div class="chat-input-pill">
+            <input type="text" id="seller-chat-input" class="chat-pill-input" placeholder="Reply to buyer…"
+              onkeypress="handleChatKey(event)" oninput="syncSendBtn()" maxlength="500" autocomplete="off">
+            <button onclick="sendSellerMessage()" class="chat-pill-send" title="Send message" id="chat-send-btn">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <script src="SellerDashboard.js"></script>
+  <script src="script.js"></script>
+
+  <script>
+    function toggleChatPanel() {
+      const panel = document.getElementById('chat-panel');
+      if (panel) panel.classList.toggle('chat-panel-open');
     }
-  }
-</script>
+    function toggleNotifPanel() {
+      document.getElementById('notif-panel').classList.toggle('notif-panel-open');
+      const badge = document.getElementById('notif-badge');
+      badge.classList.add('hidden');
+      badge.textContent = '0';
+    }
+    function toggleOrdersPanel() {
+      document.getElementById('orders-slide-panel').classList.toggle('orders-panel-open');
+      const badge = document.getElementById('orders-badge');
+      badge.classList.add('hidden');
+      badge.textContent = '0';
+    }
+  </script>
 </body>
+
 </html>
