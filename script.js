@@ -384,17 +384,58 @@ function renderSellerMessage(doc) {
   const time = formatTime(new Date(tsMillis));
   const el = document.createElement('div');
 
+  /* ── SYSTEM NOTIFICATION (order-placed alert from Buyer) ────── */
+  if (data.sender === 'system') {
+    el.className = 'msg-row';
+    el.innerHTML = `
+      <div style="
+        width:100%;
+        background:linear-gradient(135deg,rgba(212,175,55,0.18),rgba(212,175,55,0.06));
+        border:1px solid rgba(212,175,55,0.5);
+        border-radius:10px;
+        padding:10px 14px;
+        display:flex;flex-direction:column;gap:3px;
+        margin:4px 0;
+      ">
+        <span style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#D4AF37;text-transform:uppercase;">⚡ System Notification</span>
+        <span style="color:#f0e0a0;font-size:13px;font-weight:500;">${escapeHtml(data.text || '')}</span>
+        <span style="font-size:10px;color:rgba(255,255,255,0.3);align-self:flex-end;">${time}</span>
+      </div>`;
+    container.appendChild(el);
+    container.scrollTop = container.scrollHeight;
+    return;
+  }
+
+  /* ── PRODUCT FOOD CARD ─────────────────────────────────────── */
   if (data.type === 'product') {
-    // Inline Food Card: right-floated in seller chat timeline
+    const stockNum   = data.stock ?? null;
+    const inStock    = stockNum !== null && stockNum > 0;
+    const stockColor = inStock ? '#4ade80' : '#ef4444';
+    const stockLabel = stockNum === null ? ''
+      : (inStock ? '&#x2705; ' + stockNum + ' in stock' : '&#x274C; Out of stock');
+
+    const tagsHtml = (data.tags || [])
+      .map(t => '<span style="background:rgba(212,175,55,0.12);border:1px solid rgba(212,175,55,0.3);' +
+                'color:#D4AF37;padding:2px 8px;border-radius:999px;font-size:9px;font-weight:600;">' +
+                escapeHtml(t) + '</span>')
+      .join('');
+
     el.className = 'msg-row msg-row-seller';
     el.innerHTML =
       '<div class="seller-food-card-inline">' +
-      '<p class="seller-food-card-badge">Food Card Sent</p>' +
-      '<p class="seller-food-card-name">' + escapeHtml(data.name || '') + '</p>' +
-      (data.info ? '<p class="seller-food-card-desc">' + escapeHtml(data.info) + '</p>' : '') +
-      '<p class="seller-food-card-price">Rp ' + (data.price || 0).toLocaleString() + '</p>' +
-      (data.stock != null ? '<p class="seller-food-card-stock">' + (data.stock > 0 ? data.stock + ' in stock' : 'Out of stock') + '</p>' : '') +
-      '<span class="msg-time" style="color:rgba(212,175,55,0.5);">' + time + '</span>' +
+        '<p class="seller-food-card-badge">📤 Food Card Sent</p>' +
+        '<p class="seller-food-card-name">' + escapeHtml(data.name || '') + '</p>' +
+        (data.info
+          ? '<p class="seller-food-card-desc">' + escapeHtml(data.info) + '</p>'
+          : '') +
+        '<p class="seller-food-card-price">Rp ' + (data.price || 0).toLocaleString() + '</p>' +
+        (stockLabel
+          ? '<p class="seller-food-card-stock" style="color:' + stockColor + ';">' + stockLabel + '</p>'
+          : '') +
+        (tagsHtml
+          ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">' + tagsHtml + '</div>'
+          : '') +
+        '<span class="msg-time" style="color:rgba(212,175,55,0.45);">' + time + '</span>' +
       '</div>';
   } else {
     // ── Standard text bubble ──────────────────────────────────

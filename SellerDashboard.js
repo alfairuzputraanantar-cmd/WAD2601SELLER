@@ -47,6 +47,7 @@ let db = null;
     }
     db = firebase.firestore();
     console.log('[SellerDashboard] ✅ Firebase initialised — project:', firebaseConfig.projectId);
+    console.log('[Seller] Connected to Chat Collection: chats/session_01/messages');
     // DOM may not be ready yet — status dot update deferred to DOMContentLoaded
   } catch (err) {
     console.error('[SellerDashboard] ❌ Firebase init failed:', err);
@@ -184,6 +185,7 @@ function attachProductsListener() {
 // ──────────────────────────────────────────────────────────────
 let _unsubscribeOrders = null;
 const _knownOrderIds   = new Set();
+let _ordersInitialLoad = true;   // suppress toasts for pre-existing orders on first load
 
 function attachOrdersListener() {
   if (!db) return;
@@ -193,13 +195,15 @@ function attachOrdersListener() {
     _unsubscribeOrders = null;
   }
 
-  console.log('[SellerDashboard] Attaching onSnapshot → orders');
+  _ordersInitialLoad = true;
+  console.log('[SellerDashboard] Attaching onSnapshot → orders (collection: orders)');
 
-  // Only show last 30 orders, sorted newest first
+  // Query by `timestamp` — matches the field the Buyer writes in processOrder()
+  // (Buyer uses: timestamp: firebase.firestore.FieldValue.serverTimestamp())
   _unsubscribeOrders = db
     .collection('orders')
-    .orderBy('createdAt', 'desc')
-    .limit(30)
+    .orderBy('timestamp', 'desc')
+    .limit(50)
     .onSnapshot(
       (snapshot) => {
         let newOrderCount = 0;
@@ -211,22 +215,26 @@ function attachOrdersListener() {
           if (change.type === 'added' && !_knownOrderIds.has(doc.id)) {
             _knownOrderIds.add(doc.id);
             renderOrderCard(data);
-            newOrderCount++;
+            // Only count as "new" after the initial page-load snapshot is done
+            if (!_ordersInitialLoad) newOrderCount++;
           } else if (change.type === 'modified') {
-            // Update the status badge in-place
             updateOrderCardStatus(doc.id, data.status);
           }
         });
 
+        // After the first snapshot resolves, future adds are truly new orders
+        _ordersInitialLoad = false;
+
         if (newOrderCount > 0) {
           showNewOrdersBadge(newOrderCount);
-          if (newOrderCount === 1) {
-            const latest = snapshot.docs[0]?.data();
-            if (latest) showNewOrderToast(latest);
-          }
+          // Show an alert-style toast for brand-new incoming orders
+          const newDocs = snapshot.docChanges()
+            .filter(c => c.type === 'added')
+            .map(c => ({ firestoreId: c.doc.id, ...c.doc.data() }));
+          if (newDocs.length > 0) showNewOrderToast(newDocs[0]);
         }
 
-        // Hide "waiting" message once we have data
+        // Hide the "waiting for Firebase" placeholder
         if (_knownOrderIds.size > 0) {
           const emptyMsg = document.getElementById('orders-empty-msg');
           if (emptyMsg) emptyMsg.style.display = 'none';
@@ -244,10 +252,10 @@ function renderOrderCard(order) {
   const list = document.getElementById('orders-list');
   if (!list) return;
 
-  // Check if card already exists (avoid duplicates on re-render)
   if (document.getElementById(`order-card-${order.firestoreId}`)) return;
 
   const STATUS_COLORS = {
+    new:        '#a78bfa',   // purple — Buyer just placed
     pending:    '#f59e0b',
     preparing:  '#3b82f6',
     ready:      '#8b5cf6',
@@ -255,48 +263,95 @@ function renderOrderCard(order) {
     completed:  '#4ade80',
     cancelled:  '#ef4444',
   };
-  const status = order.status || 'pending';
+
+  const status = order.status || 'new';
   const color  = STATUS_COLORS[status] || '#6b7280';
 
+  // Format time from Firestore Timestamp or ISO string
+  let timeStr = '';
+  try {
+    const raw = order.timestamp?.toDate ? order.timestamp.toDate() : new Date(order.orderDate || Date.now());
+    timeStr = raw.toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' });
+  } catch { timeStr = ''; }
+
   const itemsHtml = (order.items || [])
-    .map(i => `<span style="display:block;font-size:11px;color:#9ca3af;">${escapeHtml(i.name)} ×${i.quantity}</span>`)
+    .map(i => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+        <span style="font-size:12px;color:#e5e7eb;font-weight:500;">${escapeHtml(i.name)}</span>
+        <span style="font-size:11px;color:#9ca3af;">×${i.quantity}  <span style="color:#D4AF37;">Rp ${(i.price*i.quantity).toLocaleString()}</span></span>
+      </div>`)
     .join('');
 
   const card = document.createElement('div');
   card.id = `order-card-${order.firestoreId}`;
   card.style.cssText = `
-    background:rgba(212,175,55,0.04);
-    border:1px solid rgba(212,175,55,0.2);
-    border-radius:12px;
-    padding:12px;
-    margin-bottom:10px;
-    animation:sdCardIn 0.4s cubic-bezier(0.34,1.56,0.64,1);
+    background: linear-gradient(135deg, rgba(212,175,55,0.06), rgba(0,0,0,0));
+    border: 1px solid rgba(212,175,55,0.25);
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 12px;
+    animation: sdCardIn 0.4s cubic-bezier(0.34,1.56,0.64,1);
   `;
   card.innerHTML = `
+    <!-- Header: Order ID + status badge -->
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
       <div>
-        <p style="color:#D4AF37;font-weight:700;font-size:11px;font-family:monospace;margin:0;">${order.orderId || order.firestoreId}</p>
-        <p style="color:#6b7280;font-size:10px;margin:2px 0 0;">${order.fullName || '—'} · ${order.phone || ''}</p>
+        <p style="color:#D4AF37;font-weight:800;font-size:12px;font-family:monospace;margin:0;letter-spacing:0.5px;">
+          ${escapeHtml(order.orderId || order.firestoreId.slice(0,12))}
+        </p>
+        <p style="color:#6b7280;font-size:11px;margin:3px 0 0;">
+          ${escapeHtml(order.fullName || '—')}&nbsp;&nbsp;${escapeHtml(order.phone || '')}
+        </p>
       </div>
-      <span id="status-badge-${order.firestoreId}" style="background:rgba(${hexToRgb(color)},0.15);color:${color};font-size:10px;padding:2px 8px;border-radius:20px;border:1px solid rgba(${hexToRgb(color)},0.4);font-weight:700;text-transform:uppercase;">${status}</span>
+      <span id="status-badge-${order.firestoreId}"
+        style="background:rgba(${hexToRgb(color)},0.15);color:${color};
+               font-size:10px;padding:3px 10px;border-radius:20px;
+               border:1px solid rgba(${hexToRgb(color)},0.45);font-weight:700;
+               text-transform:uppercase;white-space:nowrap;">
+        ${status}
+      </span>
     </div>
-    <div style="margin-bottom:8px;">${itemsHtml}</div>
+
+    <!-- Itemized list -->
+    <div style="margin-bottom:10px;padding:6px 0;">${itemsHtml}</div>
+
+    <!-- Pricing summary -->
+    <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:8px 10px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#6b7280;margin-bottom:3px;">
+        <span>Subtotal</span><span>Rp ${(order.subtotal || 0).toLocaleString()}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#6b7280;margin-bottom:3px;">
+        <span>Delivery</span><span>Rp ${(order.deliveryFee || 0).toLocaleString()}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#6b7280;margin-bottom:6px;">
+        <span>Tax (10%)</span><span>Rp ${(order.tax || 0).toLocaleString()}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span style="font-size:12px;color:#9ca3af;font-weight:600;">Total Paid</span>
+        <span style="font-size:14px;color:#D4AF37;font-weight:800;">Rp ${(order.total || 0).toLocaleString()}</span>
+      </div>
+    </div>
+
+    <!-- Payment + time metadata -->
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <span style="color:#9ca3af;font-size:11px;">Total</span>
-      <span style="color:#D4AF37;font-weight:700;font-size:13px;">Rp ${(order.total || 0).toLocaleString()}</span>
+      <span style="font-size:10px;color:#4b5563;background:rgba(255,255,255,0.05);border-radius:6px;padding:2px 7px;">
+        ${escapeHtml(order.paymentMethod || 'N/A')}
+      </span>
+      <span style="font-size:10px;color:#4b5563;">${timeStr}</span>
     </div>
-    <!-- Status action buttons -->
+
+    <!-- Status action buttons (Seller updates order status) -->
     <div style="display:flex;gap:5px;flex-wrap:wrap;">
-      ${['preparing','ready','delivering','completed','cancelled']
+      ${ ['preparing','ready','delivering','completed','cancelled']
         .map(s => `<button onclick="fbUpdateOrderStatus('${order.firestoreId}','${s}')"
-          style="flex:1;min-width:60px;padding:5px 4px;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;
+          style="flex:1;min-width:58px;padding:6px 4px;border-radius:7px;font-size:10px;font-weight:700;cursor:pointer;
             background:rgba(${hexToRgb(STATUS_COLORS[s])},0.12);
             border:1px solid rgba(${hexToRgb(STATUS_COLORS[s])},0.4);
-            color:${STATUS_COLORS[s]};transition:all 0.2s;"
-          onmouseover="this.style.opacity='0.8'"
+            color:${STATUS_COLORS[s]};transition:opacity 0.2s;"
+          onmouseover="this.style.opacity='0.75'"
           onmouseout="this.style.opacity='1'"
-        >${s.charAt(0).toUpperCase() + s.slice(1)}</button>`)
-        .join('')}
+        >${s.charAt(0).toUpperCase()+s.slice(1)}</button>`)
+        .join('') }
     </div>
   `;
   list.prepend(card);
@@ -307,14 +362,14 @@ function updateOrderCardStatus(firestoreId, newStatus) {
   const badge = document.getElementById(`status-badge-${firestoreId}`);
   if (!badge) return;
   const STATUS_COLORS = {
-    pending:'#f59e0b', preparing:'#3b82f6', ready:'#8b5cf6',
-    delivering:'#D4AF37', completed:'#4ade80', cancelled:'#ef4444'
+    new:'#a78bfa', pending:'#f59e0b', preparing:'#3b82f6',
+    ready:'#8b5cf6', delivering:'#D4AF37', completed:'#4ade80', cancelled:'#ef4444'
   };
   const color = STATUS_COLORS[newStatus] || '#6b7280';
   badge.textContent = newStatus;
   badge.style.color  = color;
   badge.style.background = `rgba(${hexToRgb(color)},0.15)`;
-  badge.style.borderColor = `rgba(${hexToRgb(color)},0.4)`;
+  badge.style.borderColor = `rgba(${hexToRgb(color)},0.45)`;
 }
 
 // ── Write a status update back to Firestore ───────────────────
@@ -342,28 +397,55 @@ function showNewOrdersBadge(count) {
 
 // ── New order toast popup ─────────────────────────────────────
 function showNewOrderToast(order) {
+  // Build a compact item summary (e.g. "2× Pizza, 1× Soda")
+  const itemSummary = (order.items || [])
+    .slice(0, 3)
+    .map(i => `${i.quantity}× ${escapeHtml(i.name)}`)
+    .join(', ') + ((order.items || []).length > 3 ? '…' : '');
+
   const t = document.createElement('div');
   t.style.cssText = `
     position:fixed;top:72px;left:20px;z-index:9999;
-    background:linear-gradient(135deg,#0a0a0a,#111);
-    border:1px solid rgba(59,130,246,0.5);
-    border-radius:14px;padding:14px 18px;
-    box-shadow:0 12px 40px rgba(0,0,0,0.6);
-    max-width:300px;
+    background:linear-gradient(135deg,#0c0c0f,#111318);
+    border:1px solid rgba(167,139,250,0.55);
+    border-radius:16px;padding:16px 18px;
+    box-shadow:0 0 0 1px rgba(167,139,250,0.1),0 16px 48px rgba(0,0,0,0.7);
+    max-width:320px;
     animation:sdSlideInLeft 0.4s cubic-bezier(0.34,1.56,0.64,1);
   `;
   t.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;">
-      <div style="width:36px;height:36px;border-radius:50%;background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.4);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">📋</div>
-      <div>
-        <p style="color:#3b82f6;font-weight:700;font-size:13px;margin:0 0 3px;">New Order! 🎉</p>
-        <p style="color:#e5e7eb;font-size:12px;margin:0;font-weight:600;">${order.fullName || 'Customer'}</p>
-        <p style="color:#9ca3af;font-size:11px;margin:2px 0 0;">Rp ${(order.total || 0).toLocaleString()}</p>
+    <div style="display:flex;align-items:flex-start;gap:12px;">
+      <div style="width:40px;height:40px;border-radius:50%;
+        background:linear-gradient(135deg,rgba(167,139,250,0.25),rgba(167,139,250,0.1));
+        border:1px solid rgba(167,139,250,0.45);
+        display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">🛒</div>
+      <div style="flex:1;min-width:0;">
+        <p style="color:#a78bfa;font-weight:800;font-size:13px;margin:0 0 4px;letter-spacing:0.3px;">⚡ NEW ORDER INCOMING!</p>
+        <p style="color:#f0f0f0;font-size:13px;margin:0 0 2px;font-weight:600;">${escapeHtml(order.fullName || 'Customer')}</p>
+        <p style="color:#9ca3af;font-size:11px;margin:0 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${itemSummary || '—'}</p>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-size:12px;color:#D4AF37;font-weight:700;">Rp ${(order.total || 0).toLocaleString()}</span>
+          <span style="font-size:10px;color:#374151;background:rgba(212,175,55,0.08);border:1px solid rgba(212,175,55,0.2);border-radius:5px;padding:1px 6px;font-weight:700;">
+            ${escapeHtml(order.orderId || 'NEW')}
+          </span>
+        </div>
       </div>
-      <button onclick="this.parentElement.parentElement.remove()" style="background:none;border:none;color:#4b5563;font-size:16px;cursor:pointer;margin-left:auto;flex-shrink:0;">✕</button>
+      <button onclick="this.parentElement.parentElement.remove()"
+        style="background:none;border:none;color:#4b5563;font-size:18px;cursor:pointer;line-height:1;flex-shrink:0;margin-top:-2px;">✕</button>
     </div>`;
   document.body.appendChild(t);
-  setTimeout(() => t?.remove(), 7000);
+  // Play a soft audio cue if browser allows
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine'; osc.frequency.setValueAtTime(880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.start(); osc.stop(ctx.currentTime + 0.4);
+  } catch { /* audio not available */ }
+  setTimeout(() => t?.remove(), 8000);
 }
 
 // ──────────────────────────────────────────────────────────────

@@ -139,13 +139,11 @@ body {
   justify-content: center;
 }
 
-/* LAYOUT — 2 columns: catalog | chat */
+/* LAYOUT — full-width catalog (chat is now a floating window) */
 .dashboard-layout {
-  display: grid;
-  grid-template-columns: 1fr 380px;
+  display: block;
   flex: 1;
-  height: calc(100vh - 57px);
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 /* Notification panel — slides in from the right */
@@ -605,26 +603,179 @@ body {
   transform: none;
 }
 
-/* Chat toggle btn — hidden on desktop (chat is always visible) */
+/* Chat toggle btn in header — always visible */
 #chat-toggle-header-btn {
-  display: none;
+  display: flex;
 }
 
-@media (max-width: 900px) {
-  #chat-toggle-header-btn {
-    display: flex;
-  }
-}
-
-/* CHAT PANEL */
-.chat-panel {
+/* ═══════════════════════════════════════════════════════════════
+   FLOATING CHAT WINDOW
+   Fixed to the bottom-right, always above menu/header.
+═══════════════════════════════════════════════════════════════ */
+.floating-chat {
+  position: fixed;
+  bottom: 90px;       /* sits above the FAB */
+  right: 20px;
+  width: 350px;
+  height: 480px;
+  background: #0d0d0d;
+  border: 1px solid var(--gold-border);
+  border-radius: 18px;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--gold-border);
-  background: #0a0a0a;
-  height: 100%;
   overflow: hidden;
+  z-index: 9999;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(212, 175, 55, 0.08) inset;
+
+  /* Hidden by default — scaled down + invisible */
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(20px) scale(0.96);
+  transform-origin: bottom right;
+  transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+
+.floating-chat.floating-chat-open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+/* Header bar */
+.floating-chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--gold-border);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(10px);
+  flex-shrink: 0;
+  border-radius: 18px 18px 0 0;
+}
+
+/* Scrollable message area */
+.floating-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 12px 16px;
+  scroll-behavior: smooth;
+}
+
+.floating-chat-messages::-webkit-scrollbar { width: 3px; }
+.floating-chat-messages::-webkit-scrollbar-thumb {
+  background: rgba(212, 175, 55, 0.2);
+  border-radius: 4px;
+}
+
+/* Pinned input bar */
+.floating-chat-input {
+  flex-shrink: 0;
+  padding: 8px 10px 10px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--gold-border);
+  border-radius: 0 0 18px 18px;
+}
+
+/* Close / minimise button inside the chat header */
+.floating-chat-close {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #9ca3af;
+  font-size: 18px;
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.floating-chat-close:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* Floating Action Button (chat bubble) */
+.chat-fab {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold), #c4991f);
+  border: none;
+  color: #000;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9998;
+  box-shadow: 0 8px 28px rgba(212, 175, 55, 0.5);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.chat-fab:hover {
+  transform: scale(1.1);
+  box-shadow: 0 12px 36px rgba(212, 175, 55, 0.65);
+}
+.chat-fab:active { transform: scale(0.95); }
+
+/* ═══════════════════════════════════════════════════════════════
+   SELLER INLINE FOOD CARD (shown in the seller's own chat)
+═══════════════════════════════════════════════════════════════ */
+.seller-food-card-inline {
+  background: linear-gradient(145deg, rgba(212,175,55,0.1), rgba(212,175,55,0.04));
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  border-radius: 14px;
+  border-bottom-right-radius: 4px;
+  padding: 12px 14px;
+  max-width: 90%;
+  margin-left: auto;   /* align right (seller side) */
+  box-shadow: 0 4px 20px rgba(212, 175, 55, 0.12);
+}
+.seller-food-card-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: rgba(212, 175, 55, 0.6);
+  margin: 0 0 5px;
+}
+.seller-food-card-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold);
+  margin: 0 0 3px;
+}
+.seller-food-card-desc {
+  font-size: 11px;
+  color: #9ca3af;
+  margin: 0 0 6px;
+  line-height: 1.45;
+}
+.seller-food-card-price {
+  font-size: 15px;
+  font-weight: 800;
+  color: #fff;
+  margin: 0 0 4px;
+}
+.seller-food-card-stock {
+  font-size: 10px;
+  color: #4ade80;
+  margin: 0 0 5px;
+}
+
+/* Legacy .chat-panel kept to avoid breaking any lingering references */
+.chat-panel { display: none; }
 
 .chat-panel-header {
   display: flex;
@@ -1020,33 +1171,25 @@ body {
   box-shadow: 0 4px 14px rgba(212, 175, 55, 0.4);
 }
 
-/* RESPONSIVE */
-@media (max-width: 1100px) {
-  .dashboard-layout {
-    grid-template-columns: 1fr 320px;
+/* RESPONSIVE — floating chat shrinks on narrow screens */
+@media (max-width: 480px) {
+  .floating-chat {
+    width: calc(100vw - 24px);
+    right: 12px;
+    bottom: 84px;
+    height: 420px;
+  }
+  .chat-fab {
+    right: 16px;
+    bottom: 16px;
   }
 }
 
-@media (max-width: 900px) {
-  .dashboard-layout {
-    grid-template-columns: 1fr;
+@media (max-width: 640px) {
+  .catalog-panel {
+    padding: 20px 16px;
   }
-
-  .chat-panel {
-    position: fixed;
-    right: -100%;
-    top: 57px;
-    bottom: 0;
-    width: 340px;
-    z-index: 200;
-    transition: right 0.3s ease;
-  }
-
-  .chat-panel.chat-panel-open {
-    right: 0;
-  }
-
-  .chat-close-btn {
-    display: flex !important;
+  .add-product {
+    padding: 18px;
   }
 }

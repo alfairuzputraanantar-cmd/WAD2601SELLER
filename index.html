@@ -54,13 +54,12 @@
         <span id="notif-badge" class="unread-badge hidden" style="background:#f59e0b;color:#000;">0</span>
       </button>
 
-      <!-- Chat toggle button (mobile only — desktop always shows panel) -->
+      <!-- Chat toggle button (always shown — opens floating chat window) -->
       <button class="chat-toggle-btn" id="chat-toggle-header-btn" onclick="toggleChatPanel()" title="Buyer Chat">
         <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round"
             d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
         </svg>
-        <span id="chat-unread-badge" class="unread-badge hidden">0</span>
       </button>
     </div>
   </header>
@@ -98,12 +97,12 @@
   </div>
 
   <!-- ══════════════════════════════════════════════════════════ -->
-  <!--  DASHBOARD LAYOUT                                         -->
+  <!--  DASHBOARD LAYOUT  (catalog only — chat is floating)      -->
   <!-- ══════════════════════════════════════════════════════════ -->
   <div class="dashboard-layout">
 
     <!-- ──────────────────────────────────────────────────────── -->
-    <!-- LEFT: Menu / Catalog Panel                              -->
+    <!-- FULL WIDTH: Menu / Catalog Panel                        -->
     <!-- ──────────────────────────────────────────────────────── -->
     <div class="catalog-panel">
 
@@ -153,74 +152,79 @@
       </section>
     </div>
 
-    <!-- ──────────────────────────────────────────────────────── -->
-    <!-- RIGHT: Buyer Chat Panel                                 -->
-    <!-- ──────────────────────────────────────────────────────── -->
-    <div class="chat-panel chat-panel-open" id="chat-panel">
+  </div>
 
-      <!-- Chat Header -->
-      <div class="chat-panel-header">
-        <div class="chat-panel-title">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round"
-              d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-          </svg>
-          <span>Buyer Chat</span>
-          <span class="online-dot" id="buyer-online-dot" title="Buyer online"></span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <button class="chat-clear-btn" onclick="clearConversation()" title="Clear conversation" id="chat-clear-btn">
-            <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round"
-                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-            Clear
-          </button>
-          <button class="chat-close-btn" onclick="toggleChatPanel()">✕</button>
-        </div>
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!--  FLOATING CHAT WINDOW (fixed bottom-right)               -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="floating-chat" id="chat-panel">
+
+    <!-- Chat Header -->
+    <div class="floating-chat-header">
+      <div class="chat-panel-title">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+        </svg>
+        <span>Buyer Chat</span>
+        <span class="online-dot" id="buyer-online-dot" title="Buyer online"></span>
       </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button class="chat-clear-btn" onclick="clearConversation()" title="Clear conversation" id="chat-clear-btn">
+          <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+          Clear
+        </button>
+        <button class="floating-chat-close" onclick="toggleChatPanel()" title="Minimise chat">−</button>
+      </div>
+    </div>
 
-      <!-- Chat Messages Window -->
-      <div class="chat-window-area" id="chat-window-area">
+    <!-- Buyer typing indicator -->
+    <div id="buyer-typing-indicator" class="buyer-typing-bar" style="display:none;">
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+      <span>Buyer is typing…</span>
+    </div>
 
-        <!-- Buyer is typing indicator -->
-        <div id="buyer-typing-indicator" class="buyer-typing-bar" style="display:none;">
-          <div class="typing-dot"></div>
-          <div class="typing-dot"></div>
-          <div class="typing-dot"></div>
-          <span>Buyer is typing…</span>
-        </div>
+    <!-- Scrollable message area -->
+    <div class="floating-chat-messages" id="chat-messages">
+      <div class="chat-empty-state" id="chat-empty-state">
+        <svg width="38" height="38" fill="none" stroke="currentColor" stroke-width="1.2" viewBox="0 0 24 24"
+          style="opacity:0.2;margin-bottom:10px;">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+        </svg>
+        <p style="color:#4b5563;font-size:12px;">No messages yet</p>
+        <span style="color:#374151;font-size:11px;">Waiting for buyer…</span>
+      </div>
+    </div>
 
-        <!-- ① SCROLLABLE MESSAGE AREA -->
-        <div class="chat-messages" id="chat-messages">
-          <div class="chat-empty-state" id="chat-empty-state">
-            <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.2" viewBox="0 0 24 24"
-              style="opacity:0.2;margin-bottom:12px;">
-              <path stroke-linecap="round" stroke-linejoin="round"
-                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-            </svg>
-            <p style="color:#4b5563;font-size:13px;">No messages yet</p>
-            <span style="color:#374151;font-size:11px;">Waiting for buyer…</span>
-          </div>
-        </div>
-
-        <!-- ② STICKY INPUT BAR -->
-        <div class="chat-input-bar">
-          <div class="chat-input-pill">
-            <input type="text" id="seller-chat-input" class="chat-pill-input" placeholder="Reply to buyer…"
-              onkeypress="handleChatKey(event)" oninput="syncSendBtn()" maxlength="500" autocomplete="off">
-            <button onclick="sendSellerMessage()" class="chat-pill-send" title="Send message" id="chat-send-btn">
-              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
-            </button>
-          </div>
-        </div>
-
+    <!-- Pinned input bar -->
+    <div class="floating-chat-input">
+      <div class="chat-input-pill">
+        <input type="text" id="seller-chat-input" class="chat-pill-input" placeholder="Reply to buyer…"
+          onkeypress="handleChatKey(event)" oninput="syncSendBtn()" maxlength="500" autocomplete="off">
+        <button onclick="sendSellerMessage()" class="chat-pill-send" title="Send" id="chat-send-btn">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+          </svg>
+        </button>
       </div>
     </div>
 
   </div>
+
+  <!-- Floating Chat FAB (always visible, bottom-right anchor) -->
+  <button class="chat-fab" id="chat-fab" onclick="toggleChatPanel()" title="Open Buyer Chat">
+    <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round"
+        d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+    </svg>
+    <span id="chat-unread-badge" class="unread-badge hidden">0</span>
+  </button>
 
   <script src="SellerDashboard.js"></script>
   <script src="script.js"></script>
@@ -228,7 +232,10 @@
   <script>
     function toggleChatPanel() {
       const panel = document.getElementById('chat-panel');
-      if (panel) panel.classList.toggle('chat-panel-open');
+      const fab   = document.getElementById('chat-fab');
+      if (!panel) return;
+      const isOpen = panel.classList.toggle('floating-chat-open');
+      if (fab) fab.style.display = isOpen ? 'none' : 'flex';
     }
     function toggleNotifPanel() {
       document.getElementById('notif-panel').classList.toggle('notif-panel-open');
