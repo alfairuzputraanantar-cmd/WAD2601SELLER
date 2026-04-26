@@ -1,12 +1,12 @@
 // ============================================================
 //  TEMPAT. — Seller Dashboard (Manual Mode)
-//  Communication via Firebase Firestore (shared with Buyer):
+//  Communication via Supabase Realtime (shared with Buyer):
 //
-//  Shared collection: chats/session_01/messages
-//  Document shape:
-//    text messages  : { sender, text, timestamp, ts }
+//  Shared table: public.messages
+//  Row shape:
+//    text messages  : { sender, text, session_id, type, created_at }
 //    food cards     : { sender:"seller", type:"product",
-//                       name, price, info, stock, tags, productId, timestamp }
+//                       name, price, info, stock, tags, productId, session_id }
 //
 //  Other localStorage keys (local seller-only state):
 //    seller_menu            → JSON array of product objects
@@ -14,9 +14,9 @@
 //    buyer_typing           → "1" | "0"  (buyer typing indicator)
 // ============================================================
 
-// Shared Firestore chat path (must match Buyer side)
-const CHAT_COLLECTION = 'chats/session_01/messages';
-let _chatUnsub2 = null;    // seller’s onSnapshot unsubscribe handle
+const CHAT_TABLE = 'messages';
+const SESSION_ID = 'session_01';
+let _chatUnsub2 = null;    // seller’s Supabase channel unsubscribe handle
 const _sellerRendered = new Set(); // deduplicate rendered docs
 
 // ──────────────────────────────────────────────────────────────
@@ -67,8 +67,10 @@ function addProduct() {
   saveMenu();
   renderMenu();
 
-  // Dual-write to Firestore (SellerDashboard.js provides fbSaveProduct)
-  if (typeof fbSaveProduct === 'function') fbSaveProduct(product);
+  // ── 3. WRITE TO SUPABASE
+  if (typeof sbSaveProduct === 'function') {
+    sbSaveProduct(product);
+  }
 
   // Clear form
   ['name', 'price', 'description', 'stock', 'tags'].forEach(id => {
@@ -85,8 +87,8 @@ function deleteProduct(id) {
   allProducts = allProducts.filter(p => p.id !== id);
   saveMenu();
   renderMenu();
-  // Also delete from Firestore
-  if (typeof fbDeleteProduct === 'function') fbDeleteProduct(id);
+  // Also delete from Supabase
+  if (typeof sbDeleteProduct === 'function') sbDeleteProduct(id);
   showSellerToast('Item removed.', '#ef4444');
 }
 
@@ -98,8 +100,9 @@ function updateStock(id, delta) {
   p.stock = Math.max(0, (p.stock || 0) + delta);
   saveMenu();
   renderMenu();
-  // Sync stock change to Firestore
-  if (typeof fbUpdateProduct === 'function') fbUpdateProduct(p);
+  // Sync stock change to Supabase
+  if (typeof sbUpdateProduct === 'function') sbUpdateProduct(p);
+  showSellerToast(`Stock ${delta > 0 ? '+' : ''}${delta}`, '#4ade80');
 }
 
 function setStock(id) {
@@ -112,8 +115,8 @@ function setStock(id) {
     p.stock = val;
     saveMenu();
     renderMenu();
-    // Sync stock change to Firestore
-    if (typeof fbUpdateProduct === 'function') fbUpdateProduct(p);
+    // Sync stock change to Supabase
+    if (typeof sbUpdateProduct === 'function') sbUpdateProduct(p);
   }
 }
 
@@ -205,8 +208,8 @@ function submitEditProduct(id) {
   if (idx !== -1) {
     allProducts[idx] = { ...allProducts[idx], name: nameVal, price: priceVal, stock: stockVal, description: descVal, tags: tagsVal };
     saveMenu();
-    // Dual-write edit to Firestore
-    if (typeof fbUpdateProduct === 'function') fbUpdateProduct(allProducts[idx]);
+    // Dual-write edit to Supabase
+    if (typeof sbUpdateProduct === 'function') sbUpdateProduct(allProducts[idx]);
   }
   closeEditModal();
   renderMenu();
@@ -289,7 +292,7 @@ function renderMenu() {
 //  The Buyer's page listens for the "storage" event and
 //  renders an interactive food card in the chat window.
 // ──────────────────────────────────────────────────────────────
-// ── Recommend a food card to Buyer via Firestore ────────────────
+// ── Recommend a food card to Buyer via Supabase ────────────────
 async function recommendToBuyer(productId) {
   loadMenu();
   const product = allProducts.find(p => p.id === productId);
@@ -298,21 +301,20 @@ async function recommendToBuyer(productId) {
     return showSellerToast('⚠️ This item is out of stock!', '#f59e0b');
   }
 
-  if (!db) { showSellerToast('⚠️ Firebase not connected.', '#f59e0b'); return; }
-
   try {
-    await db.collection(CHAT_COLLECTION).add({
+    const { error } = await supabaseClient.from(CHAT_TABLE).insert([{
       sender: 'seller',
-      type: 'product',          // Buyer listens for this type
+      type: 'product',
       productId: product.id,
       name: product.name,
       price: product.price,
       info: product.description || '',
       stock: product.stock ?? null,
       tags: product.tags || [],
-      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-      ts: Date.now()
-    });
+      session_id: SESSION_ID
+    }]);
+    
+    if (error) throw error;
 
     showSellerToast(`📤 Food card sent: ${product.name}`, '#D4AF37');
 
@@ -337,7 +339,7 @@ async function recommendToBuyer(productId) {
 }
 
 // ──────────────────────────────────────────────────────────────
-//  CHAT — Firebase Firestore Real-Time
+//  CHAT — Supabase Real-Time
 //  Shared collection: chats/session_01/messages
 // ──────────────────────────────────────────────────────────────
 let _lastRenderedCount = 0;  // kept for renderChat compat
@@ -358,15 +360,15 @@ function appendChatMessage(msg) {
   saveChatMessages(msgs);
 }
 
-// ── Render chat from Firestore (called by onSnapshot + manually) ──
+// ── Render chat from Supabase (called by channel listener + manually) ──
 function renderChat() {
   // This function is kept as a no-op placeholder for backward compat.
-  // The actual rendering is driven by the onSnapshot listener (renderSellerMessage).
+  // The actual rendering is driven by the channel listener (renderSellerMessage).
   // Called from renderMenu() bootstrap — safe to ignore after listener is up.
 }
 
 /**
- * renderSellerMessage(doc) — renders a single Firestore doc in the seller’s chat panel.
+ * renderSellerMessage(doc) — renders a single Supabase row in the seller's chat panel.
  * Buyer messages float LEFT, Seller messages float RIGHT.
  */
 function renderSellerMessage(doc) {
@@ -378,9 +380,9 @@ function renderSellerMessage(doc) {
 
   if (emptyState) emptyState.style.display = 'none';
 
-  const data = doc.data();
+  const data = doc.data ? doc.data() : doc;
   const isSeller = data.sender === 'seller';
-  const tsMillis = data.timestamp?.toMillis ? data.timestamp.toMillis() : (data.ts || Date.now());
+  const tsMillis = data.timestamp ? new Date(data.timestamp).getTime() : (data.ts || Date.now());
   const time = formatTime(new Date(tsMillis));
   const el = document.createElement('div');
 
@@ -408,34 +410,34 @@ function renderSellerMessage(doc) {
 
   /* ── PRODUCT FOOD CARD ─────────────────────────────────────── */
   if (data.type === 'product') {
-    const stockNum   = data.stock ?? null;
-    const inStock    = stockNum !== null && stockNum > 0;
+    const stockNum = data.stock ?? null;
+    const inStock = stockNum !== null && stockNum > 0;
     const stockColor = inStock ? '#4ade80' : '#ef4444';
     const stockLabel = stockNum === null ? ''
       : (inStock ? '&#x2705; ' + stockNum + ' in stock' : '&#x274C; Out of stock');
 
     const tagsHtml = (data.tags || [])
       .map(t => '<span style="background:rgba(212,175,55,0.12);border:1px solid rgba(212,175,55,0.3);' +
-                'color:#D4AF37;padding:2px 8px;border-radius:999px;font-size:9px;font-weight:600;">' +
-                escapeHtml(t) + '</span>')
+        'color:#D4AF37;padding:2px 8px;border-radius:999px;font-size:9px;font-weight:600;">' +
+        escapeHtml(t) + '</span>')
       .join('');
 
     el.className = 'msg-row msg-row-seller';
     el.innerHTML =
       '<div class="seller-food-card-inline">' +
-        '<p class="seller-food-card-badge">📤 Food Card Sent</p>' +
-        '<p class="seller-food-card-name">' + escapeHtml(data.name || '') + '</p>' +
-        (data.info
-          ? '<p class="seller-food-card-desc">' + escapeHtml(data.info) + '</p>'
-          : '') +
-        '<p class="seller-food-card-price">Rp ' + (data.price || 0).toLocaleString() + '</p>' +
-        (stockLabel
-          ? '<p class="seller-food-card-stock" style="color:' + stockColor + ';">' + stockLabel + '</p>'
-          : '') +
-        (tagsHtml
-          ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">' + tagsHtml + '</div>'
-          : '') +
-        '<span class="msg-time" style="color:rgba(212,175,55,0.45);">' + time + '</span>' +
+      '<p class="seller-food-card-badge">📤 Food Card Sent</p>' +
+      '<p class="seller-food-card-name">' + escapeHtml(data.name || '') + '</p>' +
+      (data.info
+        ? '<p class="seller-food-card-desc">' + escapeHtml(data.info) + '</p>'
+        : '') +
+      '<p class="seller-food-card-price">Rp ' + (data.price || 0).toLocaleString() + '</p>' +
+      (stockLabel
+        ? '<p class="seller-food-card-stock" style="color:' + stockColor + ';">' + stockLabel + '</p>'
+        : '') +
+      (tagsHtml
+        ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">' + tagsHtml + '</div>'
+        : '') +
+      '<span class="msg-time" style="color:rgba(212,175,55,0.45);">' + time + '</span>' +
       '</div>';
   } else {
     // ── Standard text bubble ──────────────────────────────────
@@ -476,41 +478,62 @@ function markAllRead() {
   }
 }
 
-// ── Attach Firestore real-time listener for the seller chat
-function attachBuyerMessageListener() {
-  if (!db || _chatUnsub2) return;   // already listening or Firebase not ready
+// ── Attach Supabase real-time listener for the seller chat
+async function attachBuyerMessageListener() {
+  if (_chatUnsub2) return;
 
-  console.log('[Seller] Attaching onSnapshot → ' + CHAT_COLLECTION);
+  console.log('[Seller] Attaching Supabase listener → ' + CHAT_TABLE);
 
-  _chatUnsub2 = db.collection(CHAT_COLLECTION)
-    .orderBy('timestamp', 'asc')
-    .onSnapshot(
-      (snapshot) => {
-        snapshot.docChanges().forEach(change => {
-          if (change.type === 'added') {
-            renderSellerMessage(change.doc);
-          }
-        });
-      },
-      (err) => console.error('[Seller Chat] Firestore listener error:', err)
-    );
+  // Fetch existing messages first
+  const { data: existing } = await supabaseClient
+    .from(CHAT_TABLE)
+    .select('*')
+    .eq('session_id', SESSION_ID)
+    .order('created_at', { ascending: true });
+
+  if (existing) {
+    existing.forEach(row => {
+      renderSellerMessage({ id: row.id, data: () => row });
+    });
+  }
+
+  _chatUnsub2 = supabaseClient.channel('seller-messages')
+    .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: CHAT_TABLE,
+        filter: `session_id=eq.${SESSION_ID}` 
+    }, payload => {
+      const row = payload.new;
+      if (!row) return;
+      if (row.sender === 'buyer') {
+          renderSellerMessage({ id: row.id, data: () => row });
+      }
+    })
+    .subscribe();
 }
 
-// ── Send a text reply to buyer via Firestore ──────────────────────────
+// ── Send a text reply to buyer via Supabase ──────────────────────────
 async function sendSellerMessage() {
   const input = document.getElementById('seller-chat-input');
   const text = input?.value.trim();
   if (!text) return;
   input.value = '';
   syncSendBtn();
-  if (!db) { showSellerToast('⚠️ Firebase not connected.', '#f59e0b'); return; }
   try {
-    await db.collection(CHAT_COLLECTION).add({
+    const { data, error } = await supabaseClient.from(CHAT_TABLE).insert([{
       sender: 'seller',
       text: text,
-      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-      ts: Date.now()
-    });
+      type: 'text',
+      session_id: SESSION_ID
+    }]).select();
+    
+    if (error) throw error;
+    
+    if (data && data[0]) {
+      const row = data[0];
+      renderSellerMessage({ id: row.id, data: () => row });
+    }
   } catch (err) {
     console.error('[Seller Chat] Failed to send:', err);
     showSellerToast('⚠️ Could not send message.', '#ef4444');
@@ -518,13 +541,16 @@ async function sendSellerMessage() {
 }
 
 function handleChatKey(e) {
-  if (e.key === 'Enter') sendSellerMessage();
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    sendSellerMessage();
+  }
 }
 
 function clearConversation() {
   if (!confirm('Clear the entire conversation? This cannot be undone.')) return;
   // NOTE: This only clears the local visible state.
-  // To truly clear the shared Firebase chat, messages in Firestore would need deletion.
+  // To truly clear the shared chat, call clearAllMessages() on the Buyer side (deletes Supabase rows).
   _sellerRendered.clear();
   const container = document.getElementById('chat-messages');
   const emptyState = document.getElementById('chat-empty-state');
@@ -640,7 +666,7 @@ function clearNotifications() {
 
 // ──────────────────────────────────────────────────────────────
 //  REAL-TIME SYNC
-//  Primary: Firestore onSnapshot (via attachBuyerMessageListener)
+//  Primary: Supabase postgres_changes channel (via attachBuyerMessageListener)
 //  Secondary: 500ms poll for cart events + typing indicator only
 // ──────────────────────────────────────────────────────────────
 window.addEventListener('storage', e => {
@@ -649,7 +675,7 @@ window.addEventListener('storage', e => {
   if (e.key === 'seller_menu') renderMenu();
 });
 
-// Fallback poll for cart events + typing only (chat is handled by Firestore)
+// Fallback poll for cart events + typing only (chat is handled by Supabase channel)
 setInterval(() => {
   checkCartEvents();
   checkBuyerTyping();
@@ -792,13 +818,13 @@ function syncSendBtn() {
 // ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   renderMenu();
-  // renderChat() is now driven by Firestore listener
+  // renderChat() is now driven by Supabase realtime listener
   checkCartEvents();
   checkBuyerTyping();
 
-  // Start the Firestore chat listener once Firebase (from SellerDashboard.js) is ready
-  // SellerDashboard.js fires its DOMContentLoaded first; db is set there.
-  // We defer slightly to guarantee db is initialized.
+  // Start the Supabase chat listener
+  // SellerDashboard.js fires its DOMContentLoaded first; supabaseClient is set there.
+  // We defer slightly to guarantee supabaseClient is initialized.
   setTimeout(() => {
     attachBuyerMessageListener();
   }, 200);

@@ -1,19 +1,19 @@
 // ============================================================
-//  SellerDashboard.js — TEMPAT. Firebase Integration Layer
-//  Project: localluxury-cb0d7  (shared with Buyer side)
+//  SellerDashboard.js — TEMPAT. Supabase Integration Layer
+//  Project: bnqhrwccxzjrnmxyzbvc  (shared with Buyer side)
 //
 //  This file:
-//    1. Initialises Firebase (Firestore) with the same config
+//    1. Initialises Supabase with the same config
 //       used in the Buyer page.
-//    2. Attaches onSnapshot listeners to:
+//    2. Attaches realtime channels to:
 //         • "products"  — streams the menu in real-time
 //         • "orders"    — streams incoming buyer orders in real-time
 //    3. Provides helper functions used by script.js:
-//         • fbUpdateOrderStatus(firestoreId, newStatus)
-//         • showFirebaseError(msg) / hideFirebaseError()
+//         • sbUpdateOrderStatus(firestoreId, newStatus)
+//         • showSupabaseError(msg) / hideSupabaseError()
 //         • refreshMenu()
 //
-//  localStorage schema (shared with script.js & Buyer page):
+//  Communication via Supabase Realtime (shared with Buyer):
 //    "seller_menu"           → local cache of menu items
 //    "chat_messages"         → seller↔buyer chat log
 //    "seller_recommendation" → food card pushed to buyer (storage event)
@@ -22,229 +22,197 @@
 // ============================================================
 
 // ──────────────────────────────────────────────────────────────
-//  1. FIREBASE CONFIGURATION
-//     Identical to the Buyer page (same DB, same project).
+//  1. SUPABASE CONFIGURATION
 // ──────────────────────────────────────────────────────────────
-const firebaseConfig = {
-  apiKey:            "AIzaSyCIYc8Epfu3jmrewyRaVGc4ISm7qKxG03k",
-  authDomain:        "localluxury-cb0d7.firebaseapp.com",
-  projectId:         "localluxury-cb0d7",
-  storageBucket:     "localluxury-cb0d7.firebasestorage.app",
-  messagingSenderId: "425958954222",
-  appId:             "1:425958954222:web:0bfcdedbfbac2697a40fff",
-  measurementId:     "G-DHC0N06PZB"
-};
+const SUPABASE_URL = "https://bnqhrwccxzjrnmxyzbvc.supabase.co";
+const SUPABASE_KEY = "sb_publishable_aQgx6XXGRxZElZI_3FYGgg_3HMtn8TD";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ──────────────────────────────────────────────────────────────
-//  2. INIT — guard against double-init from script.js
-// ──────────────────────────────────────────────────────────────
-let db = null;
-
-(function initFirebase() {
-  try {
-    if (firebase.apps.length === 0) {
-      firebase.initializeApp(firebaseConfig);
-    }
-    db = firebase.firestore();
-    console.log('[SellerDashboard] ✅ Firebase initialised — project:', firebaseConfig.projectId);
-    console.log('[Seller] Connected to Chat Collection: chats/session_01/messages');
-    // DOM may not be ready yet — status dot update deferred to DOMContentLoaded
-  } catch (err) {
-    console.error('[SellerDashboard] ❌ Firebase init failed:', err);
-    // Save error to show once DOM is ready
-    window._fbInitError = err.message;
-  }
-})();
+console.log('[SellerDashboard] ✅ Supabase initialised');
 
 // ──────────────────────────────────────────────────────────────
 //  3. STATUS DOT HELPER
 // ──────────────────────────────────────────────────────────────
-function setFbStatus(state) {
-  const dot = document.getElementById('fb-status');
+function setSbStatus(state) {
+  const dot = document.getElementById('sb-status');
   if (!dot) return;
   const MAP = {
-    connecting: { bg: '#f59e0b', title: 'Connecting to Firebase…' },
-    connected:  { bg: '#4ade80', title: 'Firebase connected ✅'   },
-    error:      { bg: '#ef4444', title: 'Firebase connection error ❌' },
+    connecting: { bg: '#f59e0b', title: 'Connecting to Supabase…' },
+    connected: { bg: '#4ade80', title: 'Supabase connected ✅' },
+    error: { bg: '#ef4444', title: 'Supabase connection error ❌' },
   };
   const s = MAP[state] || MAP.connecting;
   dot.style.background = s.bg;
-  dot.style.boxShadow  = `0 0 8px ${s.bg}`;
+  dot.style.boxShadow = `0 0 8px ${s.bg}`;
   dot.title = s.title;
 }
 
 // ──────────────────────────────────────────────────────────────
 //  4. ERROR BANNER
 // ──────────────────────────────────────────────────────────────
-function showFirebaseError(msg) {
-  console.error('[Firebase Error]', msg);
-  const banner = document.getElementById('fb-error-banner');
-  const text   = document.getElementById('fb-error-text');
+function showSupabaseError(msg) {
+  console.error('[Supabase Error]', msg);
+  const banner = document.getElementById('sb-error-banner');
+  const text = document.getElementById('sb-error-text');
   if (banner && text) {
-    text.textContent = `⚠️ Firebase: ${msg}`;
+    text.textContent = `⚠️ Supabase: ${msg}`;
     banner.style.display = 'flex';
   }
 }
 
-function hideFirebaseError() {
-  const banner = document.getElementById('fb-error-banner');
+function hideSupabaseError() {
+  const banner = document.getElementById('sb-error-banner');
   if (banner) banner.style.display = 'none';
 }
 
 // ──────────────────────────────────────────────────────────────
-//  5. MENU — onSnapshot listener on "products" collection
+//  5. MENU — Supabase realtime listener on "products" table
 //
-//  Maps Firestore docs to the same shape used by script.js so
+//  Maps Supabase rows to the same shape used by script.js so
 //  the "Recommend to Buyer" buttons get the correct product IDs.
 //
-//  Firestore product document shape (from Buyer side):
-//    { name, price, description?, stock?, tags? }
+//  Supabase products row shape:
+//    { id, name, price, description?, stock?, tags?, created_at }
 // ──────────────────────────────────────────────────────────────
 let _unsubscribeProducts = null;
 
-function attachProductsListener() {
-  if (!db) return;
+async function attachProductsListener() {
+  console.log('[SellerDashboard] Attaching Supabase listener → products');
+  setSbStatus('connecting');
 
-  // Detach any existing listener first
   if (_unsubscribeProducts) {
-    _unsubscribeProducts();
+    supabaseClient.removeChannel(_unsubscribeProducts);
     _unsubscribeProducts = null;
   }
 
-  console.log('[SellerDashboard] Attaching onSnapshot → products');
-  setFbStatus('connecting');
+  try {
+    const { data: snapshot, error } = await supabaseClient
+      .from('products')
+      .select('*')
+      .order('name', { ascending: true });
 
-  _unsubscribeProducts = db
-    .collection('products')
-    .orderBy('name')          // alphabetical — matches buyer display
-    .onSnapshot(
-      (snapshot) => {
-        hideFirebaseError();
-        setFbStatus('connected');
+    if (error) throw error;
+    
+    hideSupabaseError();
+    setSbStatus('connected');
 
-        // Remove loading spinner
-        const loadingMsg = document.getElementById('menu-loading-msg');
-        if (loadingMsg) loadingMsg.remove();
+    const loadingMsg = document.getElementById('menu-loading-msg');
+    if (loadingMsg) loadingMsg.remove();
 
-        // Show "Firebase Live" badge
-        const badge = document.getElementById('menu-source-badge');
-        if (badge) badge.style.display = 'inline-block';
+    const badge = document.getElementById('menu-source-badge');
+    if (badge) badge.style.display = 'inline-block';
 
-        if (snapshot.empty) {
-          // No products in Firestore — fall through to localStorage cache
-          console.warn('[SellerDashboard] products collection is empty.');
-          // script.js renderMenu() will show localStorage items if any
-          return;
-        }
+    const supabaseProducts = (snapshot || []).map(d => ({
+      id: d.id,
+      name: d.name || '(no name)',
+      price: Number(d.price) || 0,
+      description: d.description || '',
+      stock: d.stock !== null ? Number(d.stock) : null,
+      tags: Array.isArray(d.tags) ? d.tags : [],
+      createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now(),
+      _source: 'supabase'
+    }));
 
-        // Map snapshot → product array (same shape as localStorage products)
-        const firestoreProducts = [];
-        snapshot.forEach(doc => {
-          const d = doc.data();
-          firestoreProducts.push({
-            id:          doc.id,                          // Firestore doc ID
-            name:        d.name        || '(no name)',
-            price:       Number(d.price) || 0,
-            description: d.description || '',
-            stock:       d.stock  !== undefined ? Number(d.stock) : null,
-            tags:        Array.isArray(d.tags) ? d.tags : [],
-            createdAt:   d.createdAt?.toMillis?.() || Date.now(),
-            _source:     'firebase'                       // tag so we know origin
-          });
-        });
+    localStorage.setItem('seller_menu', JSON.stringify(supabaseProducts));
+    if (typeof renderMenu === 'function') renderMenu();
 
-        console.log(`[SellerDashboard] Received ${firestoreProducts.length} products from Firestore.`);
+    _unsubscribeProducts = supabaseClient.channel('public:products')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, async payload => {
+         const { data: snap } = await supabaseClient.from('products').select('*').order('name', { ascending: true });
+         if (snap) {
+           const updatedProducts = snap.map(d => ({
+             id: d.id, name: d.name || '(no name)', price: Number(d.price) || 0,
+             description: d.description || '', stock: d.stock !== null ? Number(d.stock) : null,
+             tags: Array.isArray(d.tags) ? d.tags : [],
+             createdAt: d.created_at ? new Date(d.created_at).getTime() : Date.now(),
+             _source: 'supabase'
+           }));
+           localStorage.setItem('seller_menu', JSON.stringify(updatedProducts));
+           if (typeof renderMenu === 'function') renderMenu();
+         }
+      })
+      .subscribe();
 
-        // Merge into seller_menu cache so script.js renderMenu() can draw cards
-        // We keep Firebase as the authoritative source — overwrite localStorage
-        localStorage.setItem('seller_menu', JSON.stringify(firestoreProducts));
-
-        // Trigger the script.js renderer
-        if (typeof renderMenu === 'function') renderMenu();
-      },
-      (err) => {
-        setFbStatus('error');
-        const msg = getFirestoreErrorMessage(err);
-        showFirebaseError(msg);
-        console.error('[SellerDashboard] products onSnapshot error:', err);
-
-        // FALLBACK: render whatever is in localStorage
-        if (typeof renderMenu === 'function') renderMenu();
-      }
-    );
+  } catch (err) {
+    setSbStatus('error');
+    showSupabaseError(`Products fetch error: ${err.message}`);
+    console.error('[SellerDashboard] products error:', err);
+    if (typeof renderMenu === 'function') renderMenu();
+  }
 }
 
 // ──────────────────────────────────────────────────────────────
-//  6. ORDERS — onSnapshot listener on "orders" collection
+//  6. ORDERS — Supabase realtime listener on "orders" table
 //
-//  Listens for new/changed order documents.
+//  Listens for new/changed order rows.
 //  Shows a slide-in panel with order details + status actions.
-//  Firestore order document shape (from Buyer side):
-//    { orderId, fullName, phone, address, city, items[],
-//      total, status, orderDate, paymentMethod, createdAt }
+//  Supabase orders row shape:
+//    { id, orderId, fullName, phone, address, city, district, items[],
+//      total, status, orderDate, paymentMethod, created_at }
 // ──────────────────────────────────────────────────────────────
 let _unsubscribeOrders = null;
-const _knownOrderIds   = new Set();
-let _ordersInitialLoad = true;   // suppress toasts for pre-existing orders on first load
+const _knownOrderIds = new Set();
+let _ordersInitialLoad = true;
 
-function attachOrdersListener() {
-  if (!db) return;
-
+async function attachOrdersListener() {
   if (_unsubscribeOrders) {
-    _unsubscribeOrders();
+    supabaseClient.removeChannel(_unsubscribeOrders);
     _unsubscribeOrders = null;
   }
 
   _ordersInitialLoad = true;
-  console.log('[SellerDashboard] Attaching onSnapshot → orders (collection: orders)');
+  console.log('[SellerDashboard] Attaching Supabase listener → orders');
 
-  // Query by `timestamp` — matches the field the Buyer writes in processOrder()
-  // (Buyer uses: timestamp: firebase.firestore.FieldValue.serverTimestamp())
-  _unsubscribeOrders = db
-    .collection('orders')
-    .orderBy('timestamp', 'desc')
-    .limit(50)
-    .onSnapshot(
-      (snapshot) => {
-        let newOrderCount = 0;
+  try {
+    const { data: snapshot, error } = await supabaseClient
+      .from('orders')
+      .select('*')
+      .order('id', { ascending: false })
+      .limit(50);
+      
+    if (error) throw error;
 
-        snapshot.docChanges().forEach(change => {
-          const doc  = change.doc;
-          const data = { firestoreId: doc.id, ...doc.data() };
+    if (snapshot) {
+      snapshot.forEach(doc => {
+        const data = { firestoreId: doc.id, ...doc };
+        if (!_knownOrderIds.has(doc.id)) {
+          _knownOrderIds.add(doc.id);
+          renderOrderCard(data);
+        }
+      });
+    }
 
-          if (change.type === 'added' && !_knownOrderIds.has(doc.id)) {
+    _ordersInitialLoad = false;
+    
+    if (_knownOrderIds.size > 0) {
+      const emptyMsg = document.getElementById('orders-empty-msg');
+      if (emptyMsg) emptyMsg.style.display = 'none';
+    }
+
+    _unsubscribeOrders = supabaseClient.channel('public:orders')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
+        if (payload.eventType === 'INSERT') {
+          const doc = payload.new;
+          const data = { firestoreId: doc.id, ...doc };
+          if (!_knownOrderIds.has(doc.id)) {
             _knownOrderIds.add(doc.id);
             renderOrderCard(data);
-            // Only count as "new" after the initial page-load snapshot is done
-            if (!_ordersInitialLoad) newOrderCount++;
-          } else if (change.type === 'modified') {
-            updateOrderCardStatus(doc.id, data.status);
+            showNewOrdersBadge(1);
+            showNewOrderToast(data);
           }
-        });
-
-        // After the first snapshot resolves, future adds are truly new orders
-        _ordersInitialLoad = false;
-
-        if (newOrderCount > 0) {
-          showNewOrdersBadge(newOrderCount);
-          // Show an alert-style toast for brand-new incoming orders
-          const newDocs = snapshot.docChanges()
-            .filter(c => c.type === 'added')
-            .map(c => ({ firestoreId: c.doc.id, ...c.doc.data() }));
-          if (newDocs.length > 0) showNewOrderToast(newDocs[0]);
-        }
-
-        // Hide the "waiting for Firebase" placeholder
-        if (_knownOrderIds.size > 0) {
           const emptyMsg = document.getElementById('orders-empty-msg');
           if (emptyMsg) emptyMsg.style.display = 'none';
+        } else if (payload.eventType === 'UPDATE') {
+          const doc = payload.new;
+          updateOrderCardStatus(doc.id, doc.status);
         }
-      },
-      (err) => {
-        console.error('[SellerDashboard] orders onSnapshot error:', err);
-        showFirebaseError(`Orders listener: ${getFirestoreErrorMessage(err)}`);
-      }
-    );
+      })
+      .subscribe();
+
+  } catch (err) {
+    console.error('[SellerDashboard] orders error:', err);
+    showSupabaseError(`Orders listener: ${err.message}`);
+  }
 }
 
 // ── Render a single order card into the orders panel ──────────
@@ -255,19 +223,19 @@ function renderOrderCard(order) {
   if (document.getElementById(`order-card-${order.firestoreId}`)) return;
 
   const STATUS_COLORS = {
-    new:        '#a78bfa',   // purple — Buyer just placed
-    pending:    '#f59e0b',
-    preparing:  '#3b82f6',
-    ready:      '#8b5cf6',
+    new: '#a78bfa',   // purple — Buyer just placed
+    pending: '#f59e0b',
+    preparing: '#3b82f6',
+    ready: '#8b5cf6',
     delivering: '#D4AF37',
-    completed:  '#4ade80',
-    cancelled:  '#ef4444',
+    completed: '#4ade80',
+    cancelled: '#ef4444',
   };
 
   const status = order.status || 'new';
-  const color  = STATUS_COLORS[status] || '#6b7280';
+  const color = STATUS_COLORS[status] || '#6b7280';
 
-  // Format time from Firestore Timestamp or ISO string
+  // Format time from Supabase created_at ISO string
   let timeStr = '';
   try {
     const raw = order.timestamp?.toDate ? order.timestamp.toDate() : new Date(order.orderDate || Date.now());
@@ -278,7 +246,7 @@ function renderOrderCard(order) {
     .map(i => `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
         <span style="font-size:12px;color:#e5e7eb;font-weight:500;">${escapeHtml(i.name)}</span>
-        <span style="font-size:11px;color:#9ca3af;">×${i.quantity}  <span style="color:#D4AF37;">Rp ${(i.price*i.quantity).toLocaleString()}</span></span>
+        <span style="font-size:11px;color:#9ca3af;">×${i.quantity}  <span style="color:#D4AF37;">Rp ${(i.price * i.quantity).toLocaleString()}</span></span>
       </div>`)
     .join('');
 
@@ -297,7 +265,7 @@ function renderOrderCard(order) {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
       <div>
         <p style="color:#D4AF37;font-weight:800;font-size:12px;font-family:monospace;margin:0;letter-spacing:0.5px;">
-          ${escapeHtml(order.orderId || order.firestoreId.slice(0,12))}
+          ${escapeHtml(order.orderId || order.firestoreId.slice(0, 12))}
         </p>
         <p style="color:#6b7280;font-size:11px;margin:3px 0 0;">
           ${escapeHtml(order.fullName || '—')}&nbsp;&nbsp;${escapeHtml(order.phone || '')}
@@ -342,46 +310,46 @@ function renderOrderCard(order) {
 
     <!-- Status action buttons (Seller updates order status) -->
     <div style="display:flex;gap:5px;flex-wrap:wrap;">
-      ${ ['preparing','ready','delivering','completed','cancelled']
-        .map(s => `<button onclick="fbUpdateOrderStatus('${order.firestoreId}','${s}')"
+      ${['preparing', 'ready', 'delivering', 'completed', 'cancelled']
+      .map(s => `<button onclick="sbUpdateOrderStatus('${order.firestoreId}','${s}')"
           style="flex:1;min-width:58px;padding:6px 4px;border-radius:7px;font-size:10px;font-weight:700;cursor:pointer;
             background:rgba(${hexToRgb(STATUS_COLORS[s])},0.12);
             border:1px solid rgba(${hexToRgb(STATUS_COLORS[s])},0.4);
             color:${STATUS_COLORS[s]};transition:opacity 0.2s;"
           onmouseover="this.style.opacity='0.75'"
           onmouseout="this.style.opacity='1'"
-        >${s.charAt(0).toUpperCase()+s.slice(1)}</button>`)
-        .join('') }
+        >${s.charAt(0).toUpperCase() + s.slice(1)}</button>`)
+      .join('')}
     </div>
   `;
   list.prepend(card);
 }
 
-// ── Update status badge in-place when Firestore doc changes ──
+// ── Update status badge in-place when Supabase order row changes ──
 function updateOrderCardStatus(firestoreId, newStatus) {
   const badge = document.getElementById(`status-badge-${firestoreId}`);
   if (!badge) return;
   const STATUS_COLORS = {
-    new:'#a78bfa', pending:'#f59e0b', preparing:'#3b82f6',
-    ready:'#8b5cf6', delivering:'#D4AF37', completed:'#4ade80', cancelled:'#ef4444'
+    new: '#a78bfa', pending: '#f59e0b', preparing: '#3b82f6',
+    ready: '#8b5cf6', delivering: '#D4AF37', completed: '#4ade80', cancelled: '#ef4444'
   };
   const color = STATUS_COLORS[newStatus] || '#6b7280';
   badge.textContent = newStatus;
-  badge.style.color  = color;
+  badge.style.color = color;
   badge.style.background = `rgba(${hexToRgb(color)},0.15)`;
   badge.style.borderColor = `rgba(${hexToRgb(color)},0.45)`;
 }
 
-// ── Write a status update back to Firestore ───────────────────
-async function fbUpdateOrderStatus(firestoreId, newStatus) {
-  if (!db) return showFirebaseError('Firebase not initialised.');
+// ── Write a status update back to Supabase ───────────────────
+async function sbUpdateOrderStatus(firestoreId, newStatus) {
   try {
-    await db.collection('orders').doc(firestoreId).update({ status: newStatus });
+    const { error } = await supabaseClient.from('orders').update({ status: newStatus }).eq('id', firestoreId);
+    if (error) throw error;
     console.log(`[SellerDashboard] Order ${firestoreId} → ${newStatus}`);
     showSellerToast(`Order updated → ${newStatus}`, '#4ade80');
   } catch (err) {
     console.error('[SellerDashboard] Status update failed:', err);
-    showFirebaseError(`Could not update status: ${err.message}`);
+    showSupabaseError(`Could not update status: ${err.message}`);
   }
 }
 
@@ -452,80 +420,74 @@ function showNewOrderToast(order) {
 //  7. REFRESH MENU (manual button)
 // ──────────────────────────────────────────────────────────────
 function refreshMenu() {
-  if (!db) {
-    showFirebaseError('Firebase not connected. Check console.');
-    return;
-  }
-  // Re-attach the listener (will flush and re-query)
+  // Re-attach the listener (will flush and re-query from Supabase)
   attachProductsListener();
-  showSellerToast('🔄 Refreshing menu from Firebase…', '#D4AF37');
+  showSellerToast('🔄 Refreshing menu from Supabase…', '#D4AF37');
 }
 
 // ──────────────────────────────────────────────────────────────
-//  8. WRITE PRODUCT TO FIRESTORE (called from script.js addProduct)
+//  8. WRITE PRODUCT TO SUPABASE (called from script.js addProduct)
 //
-//  script.js calls addProduct() which currently saves to localStorage.
-//  Here we intercept the save and ALSO write to Firestore so the
-//  Buyer page can see the new item immediately.
+//  script.js calls addProduct() which saves to localStorage.
+//  These helpers also write to Supabase so the Buyer page can
+//  see the new/updated/deleted item immediately via realtime.
 // ──────────────────────────────────────────────────────────────
-async function fbSaveProduct(product) {
-  if (!db) return; // Silently skip — localStorage always saves first in script.js
+async function sbSaveProduct(product) {
   try {
-    await db.collection('products').doc(product.id).set({
-      name:        product.name,
-      price:       product.price,
+    const { error } = await supabaseClient.from('products').insert([{
+      id: product.id,
+      name: product.name,
+      price: product.price,
       description: product.description || '',
-      stock:       product.stock ?? 0,
-      tags:        product.tags || [],
-      createdAt:   firebase.firestore.FieldValue.serverTimestamp()
-    });
-    console.log('[SellerDashboard] Product written to Firestore:', product.name);
+      stock: product.stock ?? 0,
+      tags: product.tags || []
+    }]);
+    if (error) throw error;
+    console.log('[SellerDashboard] Product written to Supabase:', product.name);
   } catch (err) {
-    console.error('[SellerDashboard] Could not write product to Firestore:', err);
-    showFirebaseError(`Product save failed: ${err.message}`);
+    console.error('[SellerDashboard] Could not write product:', err);
+    showSupabaseError(`Product save failed: ${err.message}`);
   }
 }
 
-async function fbDeleteProduct(productId) {
-  if (!db) return;
+async function sbDeleteProduct(productId) {
   try {
-    await db.collection('products').doc(productId).delete();
-    console.log('[SellerDashboard] Product deleted from Firestore:', productId);
+    await supabaseClient.from('products').delete().eq('id', productId);
+    console.log('[SellerDashboard] Product deleted:', productId);
   } catch (err) {
-    console.error('[SellerDashboard] Could not delete product from Firestore:', err);
+    console.error('[SellerDashboard] Could not delete product:', err);
   }
 }
 
-async function fbUpdateProduct(product) {
-  if (!db) return;
+async function sbUpdateProduct(product) {
   try {
-    await db.collection('products').doc(product.id).update({
-      name:        product.name,
-      price:       product.price,
+    const { error } = await supabaseClient.from('products').update({
+      name: product.name,
+      price: product.price,
       description: product.description || '',
-      stock:       product.stock ?? 0,
-      tags:        product.tags || []
-    });
-    console.log('[SellerDashboard] Product updated in Firestore:', product.name);
+      stock: product.stock ?? 0,
+      tags: product.tags || []
+    }).eq('id', product.id);
+    if (error) throw error;
+    console.log('[SellerDashboard] Product updated:', product.name);
   } catch (err) {
-    console.error('[SellerDashboard] Could not update product in Firestore:', err);
-    showFirebaseError(`Product update failed: ${err.message}`);
+    console.error('[SellerDashboard] Could not update product:', err);
+    showSupabaseError(`Product update failed: ${err.message}`);
   }
 }
 
 // ──────────────────────────────────────────────────────────────
 //  9. UTILITY
 // ──────────────────────────────────────────────────────────────
-function getFirestoreErrorMessage(err) {
+function getSupabaseErrorMessage(err) {
+  // Map common Supabase/Postgres error codes to friendly messages
   const CODE_MAP = {
-    'permission-denied':    'Permission denied. Check Firestore Security Rules.',
-    'not-found':            'Collection not found.',
-    'unauthenticated':      'You must be signed in.',
-    'unavailable':          'Firestore is offline. Check your internet connection.',
-    'resource-exhausted':   'Quota exceeded.',
-    'failed-precondition':  'Missing index. Check Firebase console for required index.',
+    '42501': 'Permission denied. Check Supabase RLS policies.',
+    '23505': 'Duplicate record — item already exists.',
+    'PGRST301': 'Row-level security blocked the request.',
+    '42P01': 'Table not found.',
   };
-  return CODE_MAP[err?.code] || (err?.message || 'Unknown Firebase error');
+  return CODE_MAP[err?.code] || (err?.message || 'Unknown Supabase error');
 }
 
 /** Convert a #rrggbb hex colour to "r,g,b" for rgba() usage */
@@ -544,8 +506,8 @@ function hexToRgb(hex) {
   const style = document.createElement('style');
   style.id = 'sd-extra-styles';
   style.textContent = `
-    /* Firebase connection status dot (header) */
-    .fb-status-dot {
+    /* Supabase connection status dot (header) */
+    .sb-status-dot {
       width: 8px; height: 8px;
       border-radius: 50%;
       background: #f59e0b;        /* starts amber = connecting */
@@ -603,21 +565,9 @@ function hexToRgb(hex) {
 //  11. BOOTSTRAP — start listeners once DOM is ready
 // ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  if (db) {
-    // Firebase init succeeded — show green dot and start listeners
-    setFbStatus('connected');
-    attachProductsListener();
-    attachOrdersListener();
-  } else {
-    // Firebase failed to init — show error and fall back to localStorage
-    setFbStatus('error');
-    if (window._fbInitError) {
-      showFirebaseError(`Firebase init failed: ${window._fbInitError}`);
-    }
-    const loadingMsg = document.getElementById('menu-loading-msg');
-    if (loadingMsg) loadingMsg.remove();
-    if (typeof renderMenu === 'function') renderMenu();
-  }
+  setSbStatus('connected');
+  attachProductsListener();
+  attachOrdersListener();
 });
 
-console.log('[SellerDashboard] Firebase integration layer loaded ✅');
+console.log('[SellerDashboard] Supabase integration layer loaded ✅');
