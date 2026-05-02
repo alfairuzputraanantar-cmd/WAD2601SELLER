@@ -5,19 +5,67 @@
 //  Shared table: public.messages
 //  Row shape:
 //    text messages  : { sender, text, session_id, type, created_at }
-//    food cards     : { sender:"seller", type:"product",
-//                       name, price, info, stock, tags, productId, session_id }
+//  TEMPAT. — Seller Dashboard (Supabase Conversation Mode)
 //
-//  Other localStorage keys (local seller-only state):
-//    seller_menu            → JSON array of product objects
-//    buyer_cart_events      → JSON array of cart-add notifications
-//    buyer_typing           → "1" | "0"  (buyer typing indicator)
+//  Shared Supabase tables:
+//    conversations : { id (uuid), buyer_name, created_at }
+//    messages      : { id, conversation_id, sender, text, type, ... }
+//    products      : menu catalog
+//    orders        : buyer orders
 // ============================================================
 
 const CHAT_TABLE = 'messages';
-const SESSION_ID = 'session_01';
-let _chatUnsub2 = null;    // seller’s Supabase channel unsubscribe handle
-const _sellerRendered = new Set(); // deduplicate rendered docs
+let _chatUnsub2 = null;          // global messages channel
+const _sellerRendered = new Set(); // dedup per active conv
+
+// ── Active conversation state ──────────────────────────────────
+let activeConversationId = null;  // UUID of selected conversation
+const _convUnreadCounts = {};     // { [convId]: number }
+const _convData = {};             // { [convId]: { id, buyer_name, created_at } }
+
+// ── Helpers ────────────────────────────────────────────────────
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function formatTime(date) {
+  return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+}
+
+function showSellerToast(msg, color = '#D4AF37') {
+  // Check if a toast container exists, if not create one
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:10000;display:flex;flex-direction:column;gap:10px;pointer-events:none;';
+    document.body.appendChild(container);
+  }
+  
+  const toast = document.createElement('div');
+  toast.style.cssText = `background:rgba(0,0,0,0.85);color:${color};padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;border:1px solid ${color};box-shadow:0 8px 16px rgba(0,0,0,0.5);opacity:0;transform:translateY(20px);transition:all 0.3s ease;`;
+  toast.textContent = msg;
+  
+  container.appendChild(toast);
+  
+  // Animate in
+  setTimeout(() => {
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateY(0)';
+  }, 10);
+  
+  // Animate out
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(-20px)';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
 
 // ──────────────────────────────────────────────────────────────
 //  MENU (Catalog) — localStorage: "seller_menu"
@@ -294,6 +342,9 @@ function renderMenu() {
 // ──────────────────────────────────────────────────────────────
 // ── Recommend a food card to Buyer via Supabase ────────────────
 async function recommendToBuyer(productId) {
+  if (!activeConversationId) {
+    return showSellerToast('⚠️ Select a buyer conversation first!', '#f59e0b');
+  }
   loadMenu();
   const product = allProducts.find(p => p.id === productId);
   if (!product) return;
@@ -311,14 +362,14 @@ async function recommendToBuyer(productId) {
       info: product.description || '',
       stock: product.stock ?? null,
       tags: product.tags || [],
-      session_id: SESSION_ID
+      conversation_id: activeConversationId,
+      session_id: 'session_01'
     }]);
-    
+
     if (error) throw error;
 
     showSellerToast(`📤 Food card sent: ${product.name}`, '#D4AF37');
 
-    // Animate the Recommend button briefly
     const btn = document.getElementById(`rec-btn-${productId}`);
     if (btn) {
       btn.innerHTML = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg> Sent!`;
@@ -339,32 +390,125 @@ async function recommendToBuyer(productId) {
 }
 
 // ──────────────────────────────────────────────────────────────
-//  CHAT — Supabase Real-Time
-//  Shared collection: chats/session_01/messages
+//  CONVERSATION LIST — renders items in the left inbox pane
 // ──────────────────────────────────────────────────────────────
-let _lastRenderedCount = 0;  // kept for renderChat compat
+function renderConversationItem(conv) {
+  _convData[conv.id] = conv;
+  if (!_convUnreadCounts[conv.id]) _convUnreadCounts[conv.id] = 0;
 
-function loadChatMessages() {
-  // No longer used for primary data — kept for clearConversation compat
-  try { return JSON.parse(localStorage.getItem('chat_messages') || '[]'); } catch { return []; }
+  const listEl = document.getElementById('conv-list-items');
+  const emptyEl = document.getElementById('conv-list-empty');
+  if (emptyEl) emptyEl.style.display = 'none';
+  if (!listEl) return;
+
+  // Remove old entry for this conversation if exists (re-render)
+  document.getElementById(`conv-item-${conv.id}`)?.remove();
+
+  const item = document.createElement('div');
+  item.id = `conv-item-${conv.id}`;
+  const isActive = conv.id === activeConversationId;
+  const unread = _convUnreadCounts[conv.id] || 0;
+
+  item.style.cssText = `
+    padding:10px 12px;
+    cursor:pointer;
+    border-left:3px solid ${isActive ? '#D4AF37' : 'transparent'};
+    background:${isActive ? 'rgba(212,175,55,0.1)' : 'transparent'};
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:6px;
+    transition:background 0.15s, border-color 0.15s;
+    border-bottom:1px solid rgba(255,255,255,0.04);
+  `;
+  item.innerHTML = `
+    <div style="flex:1;min-width:0;">
+      <p style="color:${isActive ? '#D4AF37' : '#e5e7eb'};font-size:12px;font-weight:${isActive ? '700' : '500'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0;">
+        ${escapeHtml(conv.buyer_name || 'Guest')}
+      </p>
+      <p style="color:#4b5563;font-size:10px;margin:2px 0 0;">
+        ${new Date(conv.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+      </p>
+    </div>
+    ${unread > 0 ? `<span style="background:#D4AF37;color:#000;border-radius:999px;font-size:9px;font-weight:800;padding:2px 6px;flex-shrink:0;">${unread}</span>` : ''}
+  `;
+  item.addEventListener('click', () => selectConversation(conv.id));
+  item.addEventListener('mouseenter', () => { if (conv.id !== activeConversationId) item.style.background = 'rgba(255,255,255,0.04)'; });
+  item.addEventListener('mouseleave', () => { if (conv.id !== activeConversationId) item.style.background = 'transparent'; });
+
+  listEl.appendChild(item);
 }
 
+// ──────────────────────────────────────────────────────────────
+//  SELECT CONVERSATION — loads messages for chosen buyer
+// ──────────────────────────────────────────────────────────────
+async function selectConversation(convId) {
+  if (activeConversationId === convId) return;
+  activeConversationId = convId;
+
+  // Reset unread for this conversation
+  _convUnreadCounts[convId] = 0;
+
+  // Re-render all conversation items to update active highlight
+  Object.values(_convData).forEach(c => renderConversationItem(c));
+
+  // Update active label
+  const conv = _convData[convId];
+  const nameEl = document.getElementById('active-conv-name');
+  const dotEl  = document.getElementById('active-conv-dot');
+  if (nameEl) nameEl.textContent = conv?.buyer_name || 'Buyer';
+  if (dotEl)  { dotEl.style.background = '#4ade80'; dotEl.style.boxShadow = '0 0 6px #4ade80'; }
+
+  // Enable input
+  const inputEl = document.getElementById('seller-chat-input');
+  const sendBtn = document.getElementById('chat-send-btn');
+  if (inputEl) { inputEl.disabled = false; inputEl.style.opacity = '1'; inputEl.placeholder = 'Reply to buyer…'; inputEl.focus(); }
+  if (sendBtn) { sendBtn.disabled = false; sendBtn.style.opacity = '0.45'; }
+
+  // Clear rendered message set & DOM
+  _sellerRendered.clear();
+  const container = document.getElementById('chat-messages');
+  const emptyState = document.getElementById('chat-empty-state');
+  if (container) {
+    container.innerHTML = '';
+    if (emptyState) { container.appendChild(emptyState); emptyState.style.display = 'none'; }
+  }
+
+  // Load messages for this conversation from Supabase
+  const { data: msgs } = await supabaseClient
+    .from(CHAT_TABLE)
+    .select('*')
+    .eq('conversation_id', convId)
+    .order('created_at', { ascending: true });
+
+  if (msgs && msgs.length > 0) {
+    msgs.forEach(row => renderSellerMessage({ id: row.id, data: () => row }));
+  } else if (emptyState) {
+    emptyState.style.display = 'flex';
+  }
+
+  console.log('[Seller] Switched to conversation:', convId, conv?.buyer_name);
+}
+
+// ──────────────────────────────────────────────────────────────
+//  CHAT — Supabase Realtime (kept for compat — actual logic is
+//  driven by attachBuyerMessageListener in SellerDashboard.js)
+// ──────────────────────────────────────────────────────────────
+let _lastRenderedCount = 0;
+
+function loadChatMessages() {
+  try { return JSON.parse(localStorage.getItem('chat_messages') || '[]'); } catch { return []; }
+}
 function saveChatMessages(msgs) {
   localStorage.setItem('chat_messages', JSON.stringify(msgs));
 }
-
 function appendChatMessage(msg) {
-  // Legacy helper — kept so clearConversation still works
   const msgs = loadChatMessages();
   msgs.push(msg);
   saveChatMessages(msgs);
 }
-
-// ── Render chat from Supabase (called by channel listener + manually) ──
 function renderChat() {
-  // This function is kept as a no-op placeholder for backward compat.
-  // The actual rendering is driven by the channel listener (renderSellerMessage).
-  // Called from renderMenu() bootstrap — safe to ignore after listener is up.
+  // no-op — driven by channel listener
 }
 
 /**
@@ -478,36 +622,42 @@ function markAllRead() {
   }
 }
 
-// ── Attach Supabase real-time listener for the seller chat
+// ── Attach global Supabase real-time listener for ALL messages ──
 async function attachBuyerMessageListener() {
   if (_chatUnsub2) return;
 
-  console.log('[Seller] Attaching Supabase listener → ' + CHAT_TABLE);
+  console.log('[Seller] Attaching global messages listener');
 
-  // Fetch existing messages first
-  const { data: existing } = await supabaseClient
-    .from(CHAT_TABLE)
-    .select('*')
-    .eq('session_id', SESSION_ID)
-    .order('created_at', { ascending: true });
-
-  if (existing) {
-    existing.forEach(row => {
-      renderSellerMessage({ id: row.id, data: () => row });
-    });
-  }
-
-  _chatUnsub2 = supabaseClient.channel('seller-messages')
-    .on('postgres_changes', { 
-        event: 'INSERT', 
-        schema: 'public', 
-        table: CHAT_TABLE,
-        filter: `session_id=eq.${SESSION_ID}` 
+  _chatUnsub2 = supabaseClient.channel('seller-all-messages')
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: CHAT_TABLE
     }, payload => {
       const row = payload.new;
-      if (!row) return;
-      if (row.sender === 'buyer') {
+      if (!row || !row.conversation_id) return;
+
+      if (row.conversation_id === activeConversationId) {
+        // Message is for the currently selected conversation — render it
+        if (row.sender !== 'seller') {
           renderSellerMessage({ id: row.id, data: () => row });
+        }
+      } else {
+        // Message is for a different conversation — increment unread badge
+        if (row.sender === 'buyer') {
+          _convUnreadCounts[row.conversation_id] = (_convUnreadCounts[row.conversation_id] || 0) + 1;
+          // Re-render that conversation item so badge updates
+          const conv = _convData[row.conversation_id];
+          if (conv) renderConversationItem(conv);
+
+          // Flash the global chat FAB badge
+          const badge = document.getElementById('chat-unread-badge');
+          if (badge) {
+            const cur = parseInt(badge.textContent) || 0;
+            badge.textContent = cur + 1;
+            badge.classList.remove('hidden');
+          }
+        }
       }
     })
     .subscribe();
@@ -515,6 +665,10 @@ async function attachBuyerMessageListener() {
 
 // ── Send a text reply to buyer via Supabase ──────────────────────────
 async function sendSellerMessage() {
+  if (!activeConversationId) {
+    showSellerToast('⚠️ Please select a buyer conversation first.', '#f59e0b');
+    return;
+  }
   const input = document.getElementById('seller-chat-input');
   const text = input?.value.trim();
   if (!text) return;
@@ -525,7 +679,8 @@ async function sendSellerMessage() {
       sender: 'seller',
       text: text,
       type: 'text',
-      session_id: SESSION_ID
+      conversation_id: activeConversationId,
+      session_id: 'session_01'
     }]).select();
     
     if (error) throw error;
@@ -548,9 +703,8 @@ function handleChatKey(e) {
 }
 
 function clearConversation() {
-  if (!confirm('Clear the entire conversation? This cannot be undone.')) return;
-  // NOTE: This only clears the local visible state.
-  // To truly clear the shared chat, call clearAllMessages() on the Buyer side (deletes Supabase rows).
+  if (!activeConversationId) { showSellerToast('⚠️ No conversation selected.', '#f59e0b'); return; }
+  if (!confirm('Clear messages for this buyer? (local view only)')) return;
   _sellerRendered.clear();
   const container = document.getElementById('chat-messages');
   const emptyState = document.getElementById('chat-empty-state');

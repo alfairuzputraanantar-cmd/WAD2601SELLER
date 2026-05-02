@@ -616,8 +616,8 @@ body {
   position: fixed;
   bottom: 90px;       /* sits above the FAB */
   right: 20px;
-  width: 350px;
-  height: 480px;
+  width: 560px;       /* wider to fit inbox + chat panes */
+  height: 500px;
   background: #0d0d0d;
   border: 1px solid var(--gold-border);
   border-radius: 18px;

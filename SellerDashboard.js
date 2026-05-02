@@ -562,12 +562,70 @@ function hexToRgb(hex) {
 })();
 
 // ──────────────────────────────────────────────────────────────
-//  11. BOOTSTRAP — start listeners once DOM is ready
+//  11. CONVERSATIONS LISTENER
+//  Populates the left-pane inbox with all buyer conversations.
+//  Calls renderConversationItem() (defined in script.js).
+// ──────────────────────────────────────────────────────────────
+let _convChannel = null;
+
+async function attachConversationsListener() {
+  if (_convChannel) return;
+  console.log('[SellerDashboard] Attaching conversations listener');
+
+  // 1. Fetch all existing conversations
+  const { data: convs, error } = await supabaseClient
+    .from('conversations')
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('[SellerDashboard] conversations fetch error:', error);
+    return;
+  }
+
+  if (convs && convs.length > 0) {
+    const emptyEl = document.getElementById('conv-list-empty');
+    if (emptyEl) emptyEl.style.display = 'none';
+    convs.forEach(conv => {
+      if (typeof renderConversationItem === 'function') {
+        renderConversationItem(conv);
+      }
+    });
+  }
+
+  // 2. Subscribe to new conversations in real-time
+  _convChannel = supabaseClient.channel('seller-conversations')
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'conversations'
+    }, payload => {
+      const conv = payload.new;
+      if (!conv) return;
+      console.log('[SellerDashboard] New conversation:', conv.buyer_name);
+      if (typeof renderConversationItem === 'function') {
+        renderConversationItem(conv);
+      }
+      // Show a toast so the seller notices
+      if (typeof showSellerToast === 'function') {
+        showSellerToast(`💬 New buyer: ${conv.buyer_name}`, '#4ade80');
+      }
+    })
+    .subscribe();
+}
+
+// ──────────────────────────────────────────────────────────────
+//  12. BOOTSTRAP — start listeners once DOM is ready
 // ──────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   setSbStatus('connected');
   attachProductsListener();
   attachOrdersListener();
+  attachConversationsListener();
+  // Chat messages global listener (defined in script.js)
+  if (typeof attachBuyerMessageListener === 'function') {
+    attachBuyerMessageListener();
+  }
 });
 
 console.log('[SellerDashboard] Supabase integration layer loaded ✅');

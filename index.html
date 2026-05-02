@@ -154,11 +154,11 @@
   </div>
 
   <!-- ══════════════════════════════════════════════════════════ -->
-  <!--  FLOATING CHAT WINDOW (fixed bottom-right)               -->
+  <!--  FLOATING CHAT — SPLIT PANEL  (inbox left, chat right)   -->
   <!-- ══════════════════════════════════════════════════════════ -->
   <div class="floating-chat" id="chat-panel">
 
-    <!-- Chat Header -->
+    <!-- Header -->
     <div class="floating-chat-header">
       <div class="chat-panel-title">
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -169,7 +169,7 @@
         <span class="online-dot" id="buyer-online-dot" title="Buyer online"></span>
       </div>
       <div style="display:flex;align-items:center;gap:6px;">
-        <button class="chat-clear-btn" onclick="clearConversation()" title="Clear conversation" id="chat-clear-btn">
+        <button class="chat-clear-btn" onclick="clearConversation()" title="Clear active conversation" id="chat-clear-btn">
           <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round"
               d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -180,39 +180,71 @@
       </div>
     </div>
 
-    <!-- Buyer typing indicator -->
-    <div id="buyer-typing-indicator" class="buyer-typing-bar" style="display:none;">
-      <div class="typing-dot"></div>
-      <div class="typing-dot"></div>
-      <div class="typing-dot"></div>
-      <span>Buyer is typing…</span>
-    </div>
+    <!-- Split body -->
+    <div style="display:flex;flex:1;overflow:hidden;min-height:0;">
 
-    <!-- Scrollable message area -->
-    <div class="floating-chat-messages" id="chat-messages">
-      <div class="chat-empty-state" id="chat-empty-state">
-        <svg width="38" height="38" fill="none" stroke="currentColor" stroke-width="1.2" viewBox="0 0 24 24"
-          style="opacity:0.2;margin-bottom:10px;">
-          <path stroke-linecap="round" stroke-linejoin="round"
-            d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-        </svg>
-        <p style="color:#4b5563;font-size:12px;">No messages yet</p>
-        <span style="color:#374151;font-size:11px;">Waiting for buyer…</span>
+      <!-- ── LEFT: Conversation Inbox ─────────────────────────── -->
+      <div id="conversation-list"
+        style="width:200px;flex-shrink:0;border-right:1px solid rgba(212,175,55,0.18);display:flex;flex-direction:column;background:rgba(0,0,0,0.5);overflow:hidden;">
+        <div style="padding:10px 12px;border-bottom:1px solid rgba(212,175,55,0.18);flex-shrink:0;">
+          <span style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:#6b7280;text-transform:uppercase;">Conversations</span>
+        </div>
+        <!-- Injected by JS -->
+        <div id="conv-list-items" style="flex:1;overflow-y:auto;"></div>
+        <div id="conv-list-empty" style="padding:24px 12px;text-align:center;">
+          <p style="color:#374151;font-size:11px;line-height:1.5;">No buyers yet.<br>Waiting…</p>
+        </div>
       </div>
-    </div>
 
-    <!-- Pinned input bar -->
-    <div class="floating-chat-input">
-      <div class="chat-input-pill">
-        <input type="text" id="seller-chat-input" class="chat-pill-input" placeholder="Reply to buyer…"
-          onkeypress="handleChatKey(event)" oninput="syncSendBtn()" maxlength="500" autocomplete="off">
-        <button onclick="sendSellerMessage()" class="chat-pill-send" title="Send" id="chat-send-btn">
-          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-          </svg>
-        </button>
-      </div>
-    </div>
+      <!-- ── RIGHT: Active chat window ─────────────────────────── -->
+      <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;">
+
+        <!-- Active conversation label -->
+        <div id="active-conv-label"
+          style="padding:6px 12px;background:rgba(212,175,55,0.06);border-bottom:1px solid rgba(212,175,55,0.12);font-size:11px;color:#9ca3af;flex-shrink:0;display:flex;align-items:center;gap:6px;">
+          <span style="width:6px;height:6px;border-radius:50%;background:#4b5563;display:inline-block;" id="active-conv-dot"></span>
+          <span id="active-conv-name">Select a buyer →</span>
+        </div>
+
+        <!-- Buyer typing indicator -->
+        <div id="buyer-typing-indicator" class="buyer-typing-bar" style="display:none;">
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <span>Buyer is typing…</span>
+        </div>
+
+        <!-- Messages -->
+        <div class="floating-chat-messages" id="chat-messages">
+          <div class="chat-empty-state" id="chat-empty-state">
+            <svg width="38" height="38" fill="none" stroke="currentColor" stroke-width="1.2" viewBox="0 0 24 24"
+              style="opacity:0.2;margin-bottom:10px;">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+            </svg>
+            <p style="color:#4b5563;font-size:12px;">Select a buyer to start</p>
+            <span style="color:#374151;font-size:11px;">Waiting for connections…</span>
+          </div>
+        </div>
+
+        <!-- Input -->
+        <div class="floating-chat-input">
+          <div class="chat-input-pill">
+            <input type="text" id="seller-chat-input" class="chat-pill-input"
+              placeholder="Select a conversation first…"
+              onkeypress="handleChatKey(event)" oninput="syncSendBtn()" maxlength="500" autocomplete="off"
+              disabled style="opacity:0.5;">
+            <button onclick="sendSellerMessage()" class="chat-pill-send" title="Send" id="chat-send-btn"
+              disabled style="opacity:0.45;">
+              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+      </div><!-- end right pane -->
+    </div><!-- end split body -->
 
   </div>
 
