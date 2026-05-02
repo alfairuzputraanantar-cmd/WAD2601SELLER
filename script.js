@@ -353,7 +353,7 @@ async function recommendToBuyer(productId) {
   }
 
   try {
-    const { error } = await supabaseClient.from(CHAT_TABLE).insert([{
+    const { data, error } = await supabaseClient.from(CHAT_TABLE).insert([{
       sender: 'seller',
       type: 'product',
       productId: product.id,
@@ -364,9 +364,14 @@ async function recommendToBuyer(productId) {
       tags: product.tags || [],
       conversation_id: activeConversationId,
       session_id: 'session_01'
-    }]);
+    }]).select();
 
     if (error) throw error;
+
+    if (data && data[0]) {
+      const row = data[0];
+      renderSellerMessage({ id: row.id, data: () => row });
+    }
 
     showSellerToast(`📤 Food card sent: ${product.name}`, '#D4AF37');
 
@@ -556,33 +561,47 @@ function renderSellerMessage(doc) {
   if (data.type === 'product') {
     const stockNum = data.stock ?? null;
     const inStock = stockNum !== null && stockNum > 0;
-    const stockColor = inStock ? '#4ade80' : '#ef4444';
-    const stockLabel = stockNum === null ? ''
-      : (inStock ? '&#x2705; ' + stockNum + ' in stock' : '&#x274C; Out of stock');
+    
+    let stockBadgeHtml = '';
+    if (stockNum === null) {
+      stockBadgeHtml = '';
+    } else if (!inStock) {
+      stockBadgeHtml = `<div style="display:inline-flex; align-items:center; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); border-radius:999px; padding:3px 8px; font-size:10px; color:#ef4444; font-weight:600; width:fit-content;">❌ Out of Stock</div>`;
+    } else if (stockNum <= 5) {
+      stockBadgeHtml = `<div style="display:inline-flex; align-items:center; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); border-radius:999px; padding:3px 8px; font-size:10px; color:#f59e0b; font-weight:600; width:fit-content;">⚠️ Only ${stockNum} left!</div>`;
+    } else {
+      stockBadgeHtml = `<div style="display:inline-flex; align-items:center; background:rgba(74,222,128,0.15); border:1px solid rgba(74,222,128,0.3); border-radius:999px; padding:3px 8px; font-size:10px; color:#4ade80; font-weight:600; width:fit-content;">✅ ${stockNum} in stock</div>`;
+    }
 
-    const tagsHtml = (data.tags || [])
-      .map(t => '<span style="background:rgba(212,175,55,0.12);border:1px solid rgba(212,175,55,0.3);' +
-        'color:#D4AF37;padding:2px 8px;border-radius:999px;font-size:9px;font-weight:600;">' +
-        escapeHtml(t) + '</span>')
-      .join('');
+    const safeName = escapeHtml(data.name || 'Item');
+    const safeInfo = escapeHtml(data.info || '');
+    const priceStr = 'Rp ' + (data.price || 0).toLocaleString('id-ID');
 
     el.className = 'msg-row msg-row-seller';
-    el.innerHTML =
-      '<div class="seller-food-card-inline">' +
-      '<p class="seller-food-card-badge">📤 Food Card Sent</p>' +
-      '<p class="seller-food-card-name">' + escapeHtml(data.name || '') + '</p>' +
-      (data.info
-        ? '<p class="seller-food-card-desc">' + escapeHtml(data.info) + '</p>'
-        : '') +
-      '<p class="seller-food-card-price">Rp ' + (data.price || 0).toLocaleString() + '</p>' +
-      (stockLabel
-        ? '<p class="seller-food-card-stock" style="color:' + stockColor + ';">' + stockLabel + '</p>'
-        : '') +
-      (tagsHtml
-        ? '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">' + tagsHtml + '</div>'
-        : '') +
-      '<span class="msg-time" style="color:rgba(212,175,55,0.45);">' + time + '</span>' +
-      '</div>';
+    el.innerHTML = `
+      <div style="display:flex; flex-direction:column; align-items:flex-end; width:100%;">
+        <div style="position:relative; width:100%; max-width:240px; background:linear-gradient(135deg,rgba(212,175,55,0.08),rgba(0,0,0,0.6)); border:1px solid rgba(212,175,55,0.3); border-radius:12px; overflow:hidden; font-family:sans-serif;">
+          <span style="display:block; font-size:10px; color:#D4AF37; padding:10px 14px 0; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">📦 Product Recommendation</span>
+          
+          <div style="height:100px; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.3); position:relative; border-bottom:1px solid rgba(255,255,255,0.05); margin-top:8px;">
+            <span style="font-size:40px; filter:drop-shadow(0 4px 12px rgba(212,175,55,0.3));">🍽️</span>
+            <span style="position:absolute; top:8px; right:8px; background:#D4AF37; color:#000; font-size:9px; font-weight:800; padding:3px 8px; border-radius:999px; box-shadow:0 2px 8px rgba(0,0,0,0.5);">SELLER PICK</span>
+          </div>
+
+          <div style="padding:14px; display:flex; flex-direction:column; gap:8px;">
+            <div>
+              <p style="color:#D4AF37; font-weight:700; font-size:14px; margin:0 0 2px;">${safeName}</p>
+              ${safeInfo ? `<p style="color:#9ca3af; font-size:11px; margin:0; line-height:1.4;">${safeInfo}</p>` : ''}
+            </div>
+            <p style="color:#e5e7eb; font-size:13px; font-weight:600; margin:0;">${priceStr}</p>
+            ${stockBadgeHtml}
+            <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:4px;">
+              <span style="font-size:10px; color:rgba(212,175,55,0.45); margin-left:auto;">${time}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
   } else {
     // ── Standard text bubble ──────────────────────────────────
     el.className = `msg-row ${isSeller ? 'msg-row-seller' : 'msg-row-buyer'}`;
@@ -699,6 +718,56 @@ function handleChatKey(e) {
   if (e.key === 'Enter') {
     e.preventDefault();
     sendSellerMessage();
+  }
+}
+
+async function deleteBuyer() {
+  if (!activeConversationId) {
+    showSellerToast('⚠️ No conversation selected.', '#f59e0b');
+    return;
+  }
+  const targetId = activeConversationId;
+  const targetName = _convData[targetId]?.buyer_name || 'Buyer';
+  
+  if (!confirm(`⚠️ Delete buyer "${targetName}" and ALL their messages? This cannot be undone.`)) return;
+
+  try {
+    // 1. Delete all messages for this conversation
+    await supabaseClient.from(CHAT_TABLE).delete().eq('conversation_id', targetId);
+    
+    // 2. Delete the conversation itself
+    await supabaseClient.from('conversations').delete().eq('id', targetId);
+
+    // 3. Clear UI
+    delete _convData[targetId];
+    delete _convUnreadCounts[targetId];
+    const item = document.getElementById(`conv-item-${targetId}`);
+    if (item) item.remove();
+
+    if (activeConversationId === targetId) {
+      activeConversationId = null;
+      const container = document.getElementById('chat-messages');
+      const emptyState = document.getElementById('chat-empty-state');
+      const nameEl = document.getElementById('active-conv-name');
+      const dotEl = document.getElementById('active-conv-dot');
+      
+      if (container) {
+        container.innerHTML = '';
+        if (emptyState) { container.appendChild(emptyState); emptyState.style.display = 'flex'; }
+      }
+      if (nameEl) nameEl.textContent = 'Select a buyer →';
+      if (dotEl) { dotEl.style.background = '#4b5563'; dotEl.style.boxShadow = 'none'; }
+
+      const input = document.getElementById('seller-chat-input');
+      const btn = document.getElementById('chat-send-btn');
+      if (input) { input.disabled = true; input.style.opacity = '0.5'; input.placeholder = 'Select a conversation first…'; }
+      if (btn) { btn.disabled = true; btn.style.opacity = '0.45'; }
+    }
+    
+    showSellerToast(`🗑️ Deleted buyer ${targetName}`, '#ef4444');
+  } catch (err) {
+    console.error('[Seller Chat] Failed to delete buyer:', err);
+    showSellerToast('⚠️ Failed to delete buyer.', '#ef4444');
   }
 }
 
