@@ -642,6 +642,8 @@ function markAllRead() {
 }
 
 // ── Attach global Supabase real-time listener for ALL messages ──
+let _msgPollInterval = null;
+
 async function attachBuyerMessageListener() {
   if (_chatUnsub2) return;
 
@@ -679,7 +681,30 @@ async function attachBuyerMessageListener() {
         }
       }
     })
-    .subscribe();
+    .subscribe(status => {
+      console.log('[Seller] messages channel status:', status);
+    });
+
+  // ── Polling fallback (every 3 s) for messages in the active conversation ──
+  //  Catches any buyer messages the Realtime push may have missed.
+  if (_msgPollInterval) clearInterval(_msgPollInterval);
+  _msgPollInterval = setInterval(async () => {
+    if (!activeConversationId) return;
+    try {
+      const { data: msgs } = await supabaseClient
+        .from(CHAT_TABLE)
+        .select('*')
+        .eq('conversation_id', activeConversationId)
+        .order('created_at', { ascending: true });
+
+      if (!msgs) return;
+      msgs.forEach(row => {
+        if (!_sellerRendered.has(row.id) && row.sender !== 'seller') {
+          renderSellerMessage({ id: row.id, data: () => row });
+        }
+      });
+    } catch { /* ignore polling errors silently */ }
+  }, 3000);
 }
 
 // ── Send a text reply to buyer via Supabase ──────────────────────────

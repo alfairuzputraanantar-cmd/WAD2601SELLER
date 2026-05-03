@@ -14,6 +14,8 @@
 
   <!-- ══ Supabase SDK ══ -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- ══ Auth / Session (must load after Supabase SDK, before dashboard JS) ══ -->
+  <script src="auth.js"></script>
 </head>
 
 <body>
@@ -27,6 +29,28 @@
       <span class="header-badge">Seller Dashboard</span>
     </div>
     <div class="header-right">
+      <!-- Seller session chip -->
+      <span id="seller-name-chip"
+        style="display:none;align-items:center;gap:6px;font-size:11px;font-weight:700;
+               color:#D4AF37;background:rgba(212,175,55,0.1);border:1px solid rgba(212,175,55,0.3);
+               border-radius:999px;padding:4px 12px;letter-spacing:0.04em;"
+      ></span>
+
+      <!-- Logout button -->
+      <button onclick="sellerLogout()" title="Logout"
+        style="display:flex;align-items:center;gap:5px;background:rgba(239,68,68,0.08);
+               border:1px solid rgba(239,68,68,0.25);border-radius:8px;
+               color:#ef4444;font-size:11px;font-weight:700;padding:5px 10px;
+               cursor:pointer;transition:background 0.2s;"
+        onmouseover="this.style.background='rgba(239,68,68,0.18)'"
+        onmouseout="this.style.background='rgba(239,68,68,0.08)'">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+        </svg>
+        Logout
+      </button>
+
       <!-- Supabase connection status dot -->
       <div id="sb-status" class="sb-status-dot" title="Connecting…"></div>
 

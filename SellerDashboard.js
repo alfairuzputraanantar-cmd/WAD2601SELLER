@@ -564,15 +564,27 @@ function hexToRgb(hex) {
 // ──────────────────────────────────────────────────────────────
 //  11. CONVERSATIONS LISTENER
 //  Populates the left-pane inbox with all buyer conversations.
-//  Calls renderConversationItem() (defined in script.js).
+//  Uses Supabase Realtime + a 5-second polling fallback so new
+//  buyers always appear even if the WebSocket push misses them.
 // ──────────────────────────────────────────────────────────────
 let _convChannel = null;
+const _knownConvIds = new Set();   // tracks all rendered conversation IDs
+let _convPollInterval = null;       // handle for the polling fallback
+
+/** Render a single conversation and track it so we never double-render */
+function _renderNewConv(conv) {
+  if (_knownConvIds.has(conv.id)) return;  // already shown
+  _knownConvIds.add(conv.id);
+  if (typeof renderConversationItem === 'function') {
+    renderConversationItem(conv);
+  }
+}
 
 async function attachConversationsListener() {
   if (_convChannel) return;
   console.log('[SellerDashboard] Attaching conversations listener');
 
-  // 1. Fetch all existing conversations
+  // ── 1. Fetch all existing conversations (initial load) ────────
   const { data: convs, error } = await supabaseClient
     .from('conversations')
     .select('*')
@@ -586,14 +598,10 @@ async function attachConversationsListener() {
   if (convs && convs.length > 0) {
     const emptyEl = document.getElementById('conv-list-empty');
     if (emptyEl) emptyEl.style.display = 'none';
-    convs.forEach(conv => {
-      if (typeof renderConversationItem === 'function') {
-        renderConversationItem(conv);
-      }
-    });
+    convs.forEach(conv => _renderNewConv(conv));
   }
 
-  // 2. Subscribe to new conversations in real-time
+  // ── 2. Subscribe via Supabase Realtime (instant push) ────────
   _convChannel = supabaseClient.channel('seller-conversations')
     .on('postgres_changes', {
       event: 'INSERT',
@@ -602,22 +610,82 @@ async function attachConversationsListener() {
     }, payload => {
       const conv = payload.new;
       if (!conv) return;
-      console.log('[SellerDashboard] New conversation:', conv.buyer_name);
-      if (typeof renderConversationItem === 'function') {
-        renderConversationItem(conv);
-      }
-      // Show a toast so the seller notices
+      console.log('[SellerDashboard] 🔔 Realtime — New conversation:', conv.buyer_name);
+      _renderNewConv(conv);
+      // Notify seller
       if (typeof showSellerToast === 'function') {
         showSellerToast(`💬 New buyer: ${conv.buyer_name}`, '#4ade80');
       }
+      _playNotifSound();
     })
-    .subscribe();
+    .subscribe(status => {
+      console.log('[SellerDashboard] conversations channel status:', status);
+    });
+
+  // ── 3. Polling fallback (every 5 s) ───────────────────────────
+  //  Catches any buyers the Realtime push may have missed
+  //  (e.g. WebSocket drop, RLS filtering, replication lag).
+  if (_convPollInterval) clearInterval(_convPollInterval);
+  _convPollInterval = setInterval(async () => {
+    try {
+      const { data: latest } = await supabaseClient
+        .from('conversations')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (!latest) return;
+
+      let foundNew = false;
+      latest.forEach(conv => {
+        if (!_knownConvIds.has(conv.id)) {
+          console.log('[SellerDashboard] 🔄 Poll — New conversation detected:', conv.buyer_name);
+          _renderNewConv(conv);
+          // Only toast/sound for genuinely new convs found by polling
+          if (typeof showSellerToast === 'function') {
+            showSellerToast(`💬 New buyer: ${conv.buyer_name}`, '#4ade80');
+          }
+          _playNotifSound();
+          foundNew = true;
+        }
+      });
+
+      // Hide empty state if we now have conversations
+      if (latest.length > 0) {
+        const emptyEl = document.getElementById('conv-list-empty');
+        if (emptyEl) emptyEl.style.display = 'none';
+      }
+    } catch (err) {
+      console.warn('[SellerDashboard] Poll error:', err.message);
+    }
+  }, 5000);
+}
+
+/** Soft audio ping when a new buyer appears */
+function _playNotifSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(660, ctx.currentTime);
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.5);
+  } catch { /* audio not supported */ }
 }
 
 // ──────────────────────────────────────────────────────────────
 //  12. BOOTSTRAP — start listeners once DOM is ready
 // ──────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+// ──────────────────────────────────────────────────────────────
+//  12. BOOTSTRAP — wait for auth.js sessionReady before connecting
+//  This ensures Supabase channels only open for authenticated sellers.
+// ──────────────────────────────────────────────────────────────
+function _startDashboard() {
   setSbStatus('connected');
   attachProductsListener();
   attachOrdersListener();
@@ -626,6 +694,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (typeof attachBuyerMessageListener === 'function') {
     attachBuyerMessageListener();
   }
+}
+
+// Listen for auth.js to fire sessionReady (after cookie validation / login)
+window.addEventListener('sessionReady', () => {
+  console.log('[SellerDashboard] sessionReady received — starting listeners');
+  _startDashboard();
 });
 
 console.log('[SellerDashboard] Supabase integration layer loaded ✅');
